@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALiVE War Room v2.0</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: #0a0a12;
+            color: #e0e0e0;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 280px 1fr 320px;
+            grid-template-rows: 50px 1fr 180px;
+            height: 100vh;
+            gap: 1px;
+            background: #1a1a2e;
+        }
+
+        /* Header */
+        .header {
+            grid-column: 1 / -1;
+            background: linear-gradient(135deg, #0f1729 0%, #1a1a2e 100%);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 15px;
+            border-bottom: 1px solid #00ff88;
+        }
+
+        .header h1 {
+            font-size: 1.2rem;
+            color: #00ff88;
+            text-shadow: 0 0 15px rgba(0, 255, 136, 0.6);
+            letter-spacing: 2px;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            font-size: 0.8rem;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 15px;
+            border: 1px solid #333;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ff4444;
+            animation: pulse 1.5s infinite;
+        }
+        .status-dot.connected { background: #00ff88; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+        /* Left Panel */
+        .left-panel {
+            background: #0f1729;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-section {
+            padding: 12px;
+            border-bottom: 1px solid #1a2744;
+        }
+
+        .panel-title {
+            font-size: 0.7rem;
+            color: #00ff88;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Force Strength */
+        .force-meter { margin-bottom: 8px; }
+        .force-label { display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 3px; }
+        .force-bar { height: 6px; background: #1a2744; border-radius: 3px; overflow: hidden; }
+        .force-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+        .force-fill.blufor { background: linear-gradient(90deg, #2266ff, #4488ff); }
+        .force-fill.opfor { background: linear-gradient(90deg, #cc2222, #ff4444); }
+        .force-fill.independent { background: linear-gradient(90deg, #22aa44, #44ff66); }
+
+        /* Objectives */
+        .objectives-list { flex: 1; overflow-y: auto; padding: 8px; }
+        .objective-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 6px 8px; background: rgba(0, 0, 0, 0.3);
+            border-radius: 4px; margin-bottom: 4px;
+            font-size: 0.75rem; border-left: 3px solid #444;
+        }
+        .objective-item.attack { border-left-color: #ff4444; }
+        .objective-item.defend { border-left-color: #4488ff; }
+        .obj-status { width: 8px; height: 8px; border-radius: 50%; background: #444; }
+        .obj-status.active { background: #00ff88; animation: pulse 1s infinite; }
+        .obj-status.contested { background: #ffaa00; animation: pulse 0.5s infinite; }
+
+        /* Map */
+        #map { position: relative; background: #0a0a12; }
+
+        /* Radar */
+        .threat-radar {
+            position: absolute; bottom: 15px; left: 15px;
+            width: 150px; height: 150px;
+            background: radial-gradient(circle, rgba(0,20,0,0.9) 0%, rgba(0,40,0,0.7) 100%);
+            border: 2px solid #00ff88; border-radius: 50%; z-index: 1000;
+        }
+        .radar-sweep {
+            position: absolute; width: 50%; height: 2px;
+            background: linear-gradient(90deg, transparent, #00ff88);
+            top: 50%; left: 50%; transform-origin: left center;
+            animation: radar-sweep 3s linear infinite;
+        }
+        @keyframes radar-sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .radar-ring {
+            position: absolute; border: 1px solid rgba(0, 255, 136, 0.2);
+            border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        }
+        .radar-center {
+            position: absolute; width: 6px; height: 6px; background: #00ff88;
+            border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        }
+        .radar-blip {
+            position: absolute; width: 4px; height: 4px;
+            border-radius: 50%; transform: translate(-50%, -50%);
+        }
+        .radar-blip.enemy { background: #ff4444; box-shadow: 0 0 6px #ff4444; }
+        .radar-blip.friendly { background: #4488ff; }
+
+        /* Right Panel */
+        .right-panel { background: #0f1729; display: flex; flex-direction: column; overflow: hidden; }
+
+        /* Player Stats */
+        .player-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 8px; }
+        .stat-box { background: rgba(0, 0, 0, 0.3); padding: 8px; border-radius: 4px; text-align: center; }
+        .stat-value { font-size: 1.1rem; font-weight: bold; color: #00ff88; }
+        .stat-label { font-size: 0.6rem; color: #666; text-transform: uppercase; }
+
+        /* Kill Feed */
+        .kill-feed { max-height: 200px; overflow-y: auto; padding: 8px; }
+        .kill-item {
+            display: flex; align-items: center; gap: 6px;
+            padding: 5px 8px; background: rgba(255, 68, 68, 0.1);
+            border-radius: 4px; margin-bottom: 3px;
+            font-size: 0.7rem; border-left: 2px solid #ff4444;
+        }
+        .kill-weapon { color: #888; font-size: 0.65rem; }
+
+        /* Tasks */
+        .tasks-list { flex: 1; overflow-y: auto; padding: 8px; }
+        .task-item {
+            padding: 8px; background: rgba(0, 0, 0, 0.3);
+            border-radius: 4px; margin-bottom: 4px; border-left: 3px solid #00ff88;
+        }
+        .task-item.active { border-left-color: #ffaa00; background: rgba(255, 170, 0, 0.1); }
+        .task-title { font-size: 0.8rem; font-weight: bold; }
+        .task-desc { font-size: 0.7rem; color: #888; margin-top: 2px; }
+
+        /* Bottom Panel */
+        .bottom-panel {
+            grid-column: 1 / -1; background: #0f1729;
+            display: grid; grid-template-columns: 1fr 300px;
+            border-top: 1px solid #1a2744;
+        }
+        .events-stream { display: flex; flex-direction: column; overflow: hidden; }
+        .events-header {
+            padding: 8px 15px; background: rgba(0, 0, 0, 0.3);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .events-list { flex: 1; overflow-y: auto; padding: 8px 15px; display: flex; flex-direction: column; gap: 3px; }
+        .event-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 5px 10px; background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px; font-size: 0.75rem; border-left: 2px solid #333;
+        }
+        .event-item.kill { border-left-color: #ff4444; }
+        .event-item.spawn { border-left-color: #00ff88; }
+        .event-item.objective { border-left-color: #ffaa00; }
+        .event-time { color: #555; font-size: 0.65rem; min-width: 50px; }
+
+        /* Command Panel */
+        .command-panel { background: rgba(0, 0, 0, 0.2); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+        .command-input-row { display: flex; gap: 8px; }
+        .command-input {
+            flex: 1; background: rgba(0, 0, 0, 0.4); border: 1px solid #333;
+            border-radius: 4px; padding: 8px 12px; color: #fff;
+            font-family: 'Consolas', monospace; font-size: 0.8rem;
+        }
+        .command-input:focus { outline: none; border-color: #00ff88; }
+        .send-btn {
+            background: #00ff88; border: none; border-radius: 4px;
+            padding: 8px 15px; color: #000; font-weight: bold; cursor: pointer;
+        }
+        .quick-btns { display: flex; flex-wrap: wrap; gap: 4px; }
+        .quick-btn {
+            background: rgba(0, 255, 136, 0.1); border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 3px; padding: 4px 8px; color: #00ff88;
+            font-size: 0.65rem; cursor: pointer;
+        }
+
+        /* Map markers */
+        .leaflet-container { background: #0a0a12; }
+        .player-marker {
+            background: #00ff88; border: 3px solid #fff;
+            border-radius: 50%; box-shadow: 0 0 20px rgba(0, 255, 136, 0.8);
+        }
+        .unit-marker { border-radius: 50%; border: 2px solid rgba(255,255,255,0.5); }
+        .unit-marker.blufor { background: #4488ff; }
+        .unit-marker.opfor { background: #ff4444; }
+        .unit-marker.independent { background: #44ff66; }
+
+        /* Summary stats */
+        .summary-stats { display: flex; gap: 20px; font-size: 0.75rem; }
+        .summary-stat { display: flex; align-items: center; gap: 5px; }
+        .summary-stat .count { font-weight: bold; }
+        .summary-stat.infantry .count { color: #4488ff; }
+        .summary-stat.vehicles .count { color: #ffaa00; }
+        .summary-stat.players .count { color: #00ff88; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0a12; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>ALiVE WAR ROOM v2.0</h1>
+            <div class="summary-stats">
+                <div class="summary-stat infantry"><span class="count" id="totalInfantry">0</span> Infantry</div>
+                <div class="summary-stat vehicles"><span class="count" id="totalVehicles">0</span> Vehicles</div>
+                <div class="summary-stat players"><span class="count" id="totalPlayers">0</span> Players</div>
+            </div>
+            <div class="status-bar">
+                <div class="status-pill"><span id="mapName">Unknown Map</span></div>
+                <div class="status-pill">
+                    <div class="status-dot" id="connectionDot"></div>
+                    <span id="connectionStatus">Connecting...</span>
+                </div>
+                <div class="status-pill" id="updateTime">--:--:--</div>
+            </div>
+        </div>
+
+        <div class="left-panel">
+            <div class="panel-section">
+                <div class="panel-title"><span>FORCE STRENGTH</span></div>
+                <div id="forceStrength">
+                    <div class="force-meter">
+                        <div class="force-label"><span style="color:#4488ff">BLUFOR</span><span id="bluforStrength">100%</span></div>
+                        <div class="force-bar"><div class="force-fill blufor" id="bluforBar" style="width: 100%"></div></div>
+                    </div>
+                    <div class="force-meter">
+                        <div class="force-label"><span style="color:#ff4444">OPFOR</span><span id="opforStrength">100%</span></div>
+                        <div class="force-bar"><div class="force-fill opfor" id="opforBar" style="width: 100%"></div></div>
+                    </div>
+                    <div class="force-meter">
+                        <div class="force-label"><span style="color:#44ff66">INDEP</span><span id="indepStrength">0%</span></div>
+                        <div class="force-bar"><div class="force-fill independent" id="indepBar" style="width: 0%"></div></div>
+                    </div>
+                </div>
+            </div>
+            <div class="panel-section">
+                <div class="panel-title"><span>OPCOM OBJECTIVES</span><span id="objectiveCount">0</span></div>
+            </div>
+            <div class="objectives-list" id="objectivesList">
+                <div class="objective-item"><span style="color:#666">Waiting for OPCOM...</span></div>
+            </div>
+        </div>
+
+        <div id="map">
+            <div class="threat-radar" id="threatRadar">
+                <div class="radar-ring" style="width:30%;height:30%"></div>
+                <div class="radar-ring" style="width:60%;height:60%"></div>
+                <div class="radar-ring" style="width:90%;height:90%"></div>
+                <div class="radar-sweep"></div>
+                <div class="radar-center"></div>
+                <div id="radarBlips"></div>
+            </div>
+        </div>
+
+        <div class="right-panel">
+            <div class="panel-section">
+                <div class="panel-title">PLAYER STATUS</div>
+                <div class="player-stats">
+                    <div class="stat-box"><div class="stat-value" id="playerX">0</div><div class="stat-label">X</div></div>
+                    <div class="stat-box"><div class="stat-value" id="playerY">0</div><div class="stat-label">Y</div></div>
+                    <div class="stat-box"><div class="stat-value" id="playerAlt">0</div><div class="stat-label">ALT</div></div>
+                </div>
+            </div>
+            <div class="panel-section"><div class="panel-title"><span>KILL FEED</span></div></div>
+            <div class="kill-feed" id="killFeed">
+                <div class="kill-item"><span style="color:#666">No kills yet...</span></div>
+            </div>
+            <div class="panel-section"><div class="panel-title"><span>ACTIVE TASKS</span><span id="taskCount">0</span></div></div>
+            <div class="tasks-list" id="tasksList">
+                <div class="task-item"><div class="task-title" style="color:#666">No active tasks</div></div>
+            </div>
+        </div>
+
+        <div class="bottom-panel">
+            <div class="events-stream">
+                <div class="events-header">
+                    <div class="panel-title" style="margin:0">COMBAT EVENTS</div>
+                    <span id="eventCount" style="color:#666;font-size:0.7rem">0 events</span>
+                </div>
+                <div class="events-list" id="eventsList">
+                    <div class="event-item"><span class="event-time">--:--</span><span>Awaiting game connection...</span></div>
+                </div>
+            </div>
+            <div class="command-panel">
+                <div class="panel-title" style="margin:0">COMMAND INTERFACE</div>
+                <div class="command-input-row">
+                    <input type="text" class="command-input" id="commandInput" placeholder="SQF command...">
+                    <button class="send-btn" onclick="sendCommand()">SEND</button>
+                </div>
+                <div class="quick-btns">
+                    <button class="quick-btn" onclick="quickCmd('hint \"War Room Online\"')">Hint</button>
+                    <button class="quick-btn" onclick="quickCmd('player setDamage 0')">Heal</button>
+                    <button class="quick-btn" onclick="quickCmd('player setFatigue 0')">Stamina</button>
+                    <button class="quick-btn" onclick="quickCmd('[player] call ALiVE_fnc_adminActions')">Admin</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const MAP_CONFIGS = {
+            altis: { size: 30720, tiles: 'https://jetelain.github.io/Arma3Map/maps/altis/{z}/{x}/{y}.png' },
+            stratis: { size: 8192, tiles: 'https://jetelain.github.io/Arma3Map/maps/stratis/{z}/{x}/{y}.png' },
+            tanoa: { size: 15360, tiles: 'https://jetelain.github.io/Arma3Map/maps/tanoa/{z}/{x}/{y}.png' },
+            lythium: { size: 20480, tiles: 'https://jetelain.github.io/Arma3Map/maps/lythium/{z}/{x}/{y}.png' },
+            livonia: { size: 12800, tiles: 'https://jetelain.github.io/Arma3Map/maps/enoch/{z}/{x}/{y}.png' }
+        };
+
+        let currentMap = 'altis', mapSize = 30720;
+        const MAX_ZOOM = 6;
+
+        function createArmaCRS(size) {
+            const sf = 256 / size;
+            return L.extend({}, L.CRS.Simple, { transformation: new L.Transformation(sf, 0, -sf, 256) });
+        }
+
+        let map = L.map('map', {
+            crs: createArmaCRS(mapSize), minZoom: 0, maxZoom: MAX_ZOOM,
+            center: [mapSize/2, mapSize/2], zoom: 2
+        });
+
+        let tileLayer = L.tileLayer(MAP_CONFIGS.altis.tiles, {
+            minZoom: 0, maxZoom: MAX_ZOOM, tileSize: 256, noWrap: true
+        }).addTo(map);
+
+        function switchMap(name) {
+            const cfg = MAP_CONFIGS[name.toLowerCase()];
+            if (!cfg || currentMap === name.toLowerCase()) return;
+            currentMap = name.toLowerCase();
+            mapSize = cfg.size;
+            map.options.crs = createArmaCRS(mapSize);
+            tileLayer.setUrl(cfg.tiles);
+            map.setView([mapSize/2, mapSize/2], 2);
+            document.getElementById('mapName').textContent = name;
+        }
+
+        let playerMarker = null, unitMarkers = [], objMarkers = [], playerPos = [0, 0];
+
+        const playerIcon = L.divIcon({ className: 'player-marker', iconSize: [16, 16], iconAnchor: [8, 8] });
+
+        function armaToLeaflet(x, y) { return [y, x]; }
+
+        function updatePlayerMarker(x, y) {
+            const pos = armaToLeaflet(x, y);
+            if (!playerMarker) playerMarker = L.marker(pos, { icon: playerIcon, zIndexOffset: 1000 }).addTo(map);
+            else playerMarker.setLatLng(pos);
+        }
+
+        function updateUnitMarkers(infantry, vehicles) {
+            unitMarkers.forEach(m => map.removeLayer(m));
+            unitMarkers = [];
+            infantry.forEach(u => {
+                const [id, pos, side, count, active, faction] = u;
+                if (!pos || pos.length < 2) return;
+                let sc = side === 'WEST' ? 'blufor' : side === 'EAST' ? 'opfor' : side === 'GUER' ? 'independent' : 'civilian';
+                const sz = Math.min(12, 6 + count);
+                const icon = L.divIcon({ className: `unit-marker ${sc}`, iconSize: [sz, sz], iconAnchor: [sz/2, sz/2] });
+                const m = L.marker(armaToLeaflet(pos[0], pos[1]), { icon })
+                    .bindPopup(`<b>${faction || 'Unknown'}</b><br>Units: ${count}<br>Active: ${active ? 'Yes' : 'Virtual'}`).addTo(map);
+                unitMarkers.push(m);
+            });
+        }
+
+        function updateObjectiveMarkers(opcom) {
+            objMarkers.forEach(m => map.removeLayer(m));
+            objMarkers = [];
+            opcom.forEach(o => {
+                const [side, ct, fac, ss, cs, objs] = o;
+                objs.forEach(obj => {
+                    const [center, state, orders, danger, size, type] = obj;
+                    if (!center || center.length < 2) return;
+                    const icon = L.divIcon({
+                        className: `objective-marker ${type === 'MIL' ? 'military' : 'civilian'}`,
+                        iconSize: [20, 20], iconAnchor: [10, 10],
+                        html: `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:${type==='MIL'?'#ff4444':'#aa44ff'};border-radius:3px;border:2px solid #fff;color:#fff;font-size:10px;font-weight:bold">${type === 'MIL' ? 'M' : 'C'}</div>`
+                    });
+                    const m = L.marker(armaToLeaflet(center[0], center[1]), { icon })
+                        .bindPopup(`<b>${state}</b><br>Orders: ${orders || 'None'}<br>Danger: ${danger || 0}`).addTo(map);
+                    objMarkers.push(m);
+                });
+            });
+        }
+
+        function updateRadar(infantry) {
+            const blips = document.getElementById('radarBlips');
+            blips.innerHTML = '';
+            const rr = 75, dr = 1000;
+            infantry.forEach(u => {
+                const [id, pos, side] = u;
+                if (!pos || side === 'WEST') return;
+                const dx = pos[0] - playerPos[0], dy = pos[1] - playerPos[1];
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist < dr) {
+                    const a = Math.atan2(dy, dx), nd = (dist / dr) * rr;
+                    const x = rr + nd * Math.cos(a), y = rr - nd * Math.sin(a);
+                    const b = document.createElement('div');
+                    b.className = `radar-blip ${side === 'EAST' ? 'enemy' : 'friendly'}`;
+                    b.style.left = x + 'px'; b.style.top = y + 'px';
+                    blips.appendChild(b);
+                }
+            });
+        }
+
+        function updateForceStrength(opcom) {
+            let blu = 0, op = 0, ind = 0;
+            opcom.forEach(o => {
+                const [side, ct, fac, ss, cs] = o;
+                const pct = ss > 0 ? Math.round((cs / ss) * 100) : 0;
+                if (side === 'WEST') blu = pct;
+                else if (side === 'EAST') op = pct;
+                else if (side === 'GUER') ind = pct;
+            });
+            document.getElementById('bluforStrength').textContent = blu + '%';
+            document.getElementById('bluforBar').style.width = blu + '%';
+            document.getElementById('opforStrength').textContent = op + '%';
+            document.getElementById('opforBar').style.width = op + '%';
+            document.getElementById('indepStrength').textContent = ind + '%';
+            document.getElementById('indepBar').style.width = ind + '%';
+        }
+
+        function updateObjectivesList(opcom) {
+            const list = document.getElementById('objectivesList');
+            let objs = [], cnt = 0;
+            opcom.forEach(o => {
+                const [side, ct, fac, ss, cs, objectives] = o;
+                objectives.forEach(obj => { objs.push({ side, ...obj }); cnt++; });
+            });
+            document.getElementById('objectiveCount').textContent = cnt;
+            if (objs.length === 0) { list.innerHTML = '<div class="objective-item"><span style="color:#666">No objectives</span></div>'; return; }
+            list.innerHTML = objs.slice(0, 15).map(o => {
+                const [center, state, orders, danger] = [o[0], o[1], o[2], o[3]];
+                let oc = orders === 'attack' ? 'attack' : orders === 'defend' ? 'defend' : '';
+                let sc = danger > 50 ? 'contested' : orders ? 'active' : '';
+                return `<div class="objective-item ${oc}"><div class="obj-status ${sc}"></div><span>${state || 'Unknown'} - ${orders || 'reserve'}</span></div>`;
+            }).join('');
+        }
+
+        function updateTasksList(tasks) {
+            const list = document.getElementById('tasksList');
+            document.getElementById('taskCount').textContent = tasks.length;
+            if (tasks.length === 0) { list.innerHTML = '<div class="task-item"><div class="task-title" style="color:#666">No tasks</div></div>'; return; }
+            list.innerHTML = tasks.map(t => {
+                const [id, side, pos, title, state, current] = t;
+                return `<div class="task-item ${current ? 'active' : ''}"><div class="task-title">${title || id}</div><div class="task-desc">${state || 'Assigned'}</div></div>`;
+            }).join('');
+        }
+
+        function addEvent(type, msg) {
+            const list = document.getElementById('eventsList');
+            const time = new Date().toLocaleTimeString().slice(0, 5);
+            const item = document.createElement('div');
+            item.className = `event-item ${type}`;
+            item.innerHTML = `<span class="event-time">${time}</span><span>${msg}</span>`;
+            list.insertBefore(item, list.firstChild);
+            document.getElementById('eventCount').textContent = list.children.length + ' events';
+            while (list.children.length > 50) list.removeChild(list.lastChild);
+        }
+
+        let ws = null, reconnectTimer = null;
+
+        function connect() {
+            ws = new WebSocket(`ws://${window.location.host}/ws`);
+            ws.onopen = () => {
+                document.getElementById('connectionDot').classList.add('connected');
+                document.getElementById('connectionStatus').textContent = 'Connected';
+                addEvent('spawn', 'War Room connected');
+            };
+            ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+            ws.onclose = () => {
+                document.getElementById('connectionDot').classList.remove('connected');
+                document.getElementById('connectionStatus').textContent = 'Disconnected';
+                if (!reconnectTimer) reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, 3000);
+            };
+        }
+
+        function handleMessage(msg) {
+            if (msg.type === 'fullUpdate') {
+                const d = msg.data;
+                if (d.map) switchMap(d.map);
+                if (d.summary) {
+                    document.getElementById('totalInfantry').textContent = d.summary.infantry || 0;
+                    document.getElementById('totalVehicles').textContent = d.summary.vehicles || 0;
+                    document.getElementById('totalPlayers').textContent = d.summary.players || 0;
+                }
+                if (d.players && d.players.length > 0) {
+                    const [name, pos] = d.players[0];
+                    if (pos && pos.length >= 2) {
+                        playerPos = [pos[0], pos[1]];
+                        updatePlayerMarker(pos[0], pos[1]);
+                        document.getElementById('playerX').textContent = Math.round(pos[0]);
+                        document.getElementById('playerY').textContent = Math.round(pos[1]);
+                        document.getElementById('playerAlt').textContent = Math.round(pos[2] || 0);
+                    }
+                }
+                if (d.infantry || d.vehicles) {
+                    updateUnitMarkers(d.infantry || [], d.vehicles || []);
+                    updateRadar(d.infantry || []);
+                }
+                if (d.opcom && d.opcom.length > 0) {
+                    updateForceStrength(d.opcom);
+                    updateObjectivesList(d.opcom);
+                    updateObjectiveMarkers(d.opcom);
+                }
+                if (d.tasks) updateTasksList(d.tasks);
+                document.getElementById('updateTime').textContent = new Date().toLocaleTimeString();
+            }
+            if (msg.type === 'connection') addEvent(msg.status === 'connected' ? 'spawn' : 'kill', 'TacControl ' + msg.status);
+        }
+
+        function sendCommand() {
+            const inp = document.getElementById('commandInput'), cmd = inp.value.trim();
+            if (!cmd) return;
+            fetch('/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: cmd }) })
+                .then(r => { if (r.ok) { addEvent('objective', 'Cmd: ' + cmd.slice(0, 40)); inp.value = ''; } });
+        }
+        function quickCmd(c) { document.getElementById('commandInput').value = c; sendCommand(); }
+        document.getElementById('commandInput').addEventListener('keypress', e => { if (e.key === 'Enter') sendCommand(); });
+
+        async function poll() {
+            if (ws && ws.readyState === WebSocket.OPEN) return;
+            try { const r = await fetch('/api/state'); handleMessage({ type: 'fullUpdate', data: await r.json() }); } catch (e) {}
+        }
+
+        connect();
+        setInterval(poll, 5000);
+        map.setView([mapSize/2, mapSize/2], 2);
+        console.log('ALiVE War Room v2.0 ready');
+    </script>
+</body>
+</html>

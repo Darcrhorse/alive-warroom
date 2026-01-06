@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALiVE Tactical Feed</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: #0a0a12;
+            color: #e0e0e0;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Login Screen */
+        .login-screen {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(135deg, #0a0a12 0%, #1a1a2e 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        .login-screen.hidden { display: none; }
+        .login-title {
+            font-size: 2rem;
+            color: #00ff88;
+            text-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+            margin-bottom: 10px;
+            letter-spacing: 3px;
+        }
+        .login-subtitle { color: #666; margin-bottom: 30px; }
+        .login-box {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 30px;
+            border-radius: 10px;
+            border: 1px solid #333;
+            min-width: 350px;
+        }
+        .login-label { display: block; color: #888; font-size: 0.8rem; margin-bottom: 8px; }
+        .login-input {
+            width: 100%;
+            padding: 12px 15px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 1rem;
+            margin-bottom: 15px;
+        }
+        .login-input:focus { outline: none; border-color: #00ff88; }
+        .login-btn {
+            width: 100%;
+            padding: 12px;
+            background: #00ff88;
+            border: none;
+            border-radius: 6px;
+            color: #000;
+            font-weight: bold;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .login-btn:hover { background: #00cc66; }
+        .player-list {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #333;
+        }
+        .player-list-title { color: #888; font-size: 0.75rem; margin-bottom: 10px; }
+        .player-btn {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 4px;
+            color: #00ff88;
+            margin-bottom: 5px;
+            cursor: pointer;
+            text-align: left;
+        }
+        .player-btn:hover { background: rgba(0, 255, 136, 0.2); }
+
+        /* Main Dashboard */
+        .container {
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            grid-template-rows: 50px 1fr;
+            height: 100vh;
+            gap: 1px;
+            background: #1a1a2e;
+        }
+
+        /* Header */
+        .header {
+            grid-column: 1 / -1;
+            background: linear-gradient(135deg, #0f1729 0%, #1a1a2e 100%);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 15px;
+            border-bottom: 1px solid #00ff88;
+        }
+        .header h1 { font-size: 1rem; color: #00ff88; letter-spacing: 2px; }
+        .player-badge {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 5px 15px;
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid #00ff88;
+            border-radius: 20px;
+        }
+        .player-badge .name { font-weight: bold; color: #00ff88; }
+        .status-bar { display: flex; gap: 15px; align-items: center; font-size: 0.8rem; }
+        .status-pill {
+            display: flex; align-items: center; gap: 6px;
+            padding: 5px 12px; background: rgba(0, 0, 0, 0.4);
+            border-radius: 15px; border: 1px solid #333;
+        }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #ff4444; animation: pulse 1.5s infinite;
+        }
+        .status-dot.connected { background: #00ff88; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+        /* Sidebar */
+        .sidebar {
+            background: #0f1729;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .panel-section { padding: 12px; border-bottom: 1px solid #1a2744; }
+        .panel-title {
+            font-size: 0.7rem; color: #00ff88; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 10px;
+            display: flex; justify-content: space-between;
+        }
+
+        /* Player Stats */
+        .player-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+        .stat-box {
+            background: rgba(0, 0, 0, 0.3); padding: 10px;
+            border-radius: 4px; text-align: center;
+        }
+        .stat-value { font-size: 1.2rem; font-weight: bold; color: #00ff88; }
+        .stat-label { font-size: 0.6rem; color: #666; text-transform: uppercase; }
+
+        /* Squad List */
+        .squad-list { flex: 1; overflow-y: auto; padding: 8px; }
+        .squad-member {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px; background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px; margin-bottom: 4px;
+            border-left: 3px solid #4488ff;
+        }
+        .squad-member.player { border-left-color: #00ff88; }
+        .member-icon {
+            width: 24px; height: 24px; border-radius: 50%;
+            background: #4488ff; display: flex;
+            align-items: center; justify-content: center;
+            font-size: 0.7rem; color: #fff;
+        }
+        .member-icon.you { background: #00ff88; color: #000; }
+        .member-name { font-size: 0.8rem; }
+        .member-status { margin-left: auto; font-size: 0.65rem; color: #888; }
+
+        /* Contacts */
+        .contacts-list { flex: 1; overflow-y: auto; padding: 8px; }
+        .contact-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 6px 8px; background: rgba(255, 68, 68, 0.1);
+            border-radius: 4px; margin-bottom: 4px;
+            border-left: 3px solid #ff4444;
+        }
+        .contact-icon {
+            width: 20px; height: 20px; border-radius: 50%;
+            background: #ff4444; display: flex;
+            align-items: center; justify-content: center;
+            font-size: 0.65rem; color: #fff;
+        }
+        .contact-info { font-size: 0.75rem; }
+        .contact-spotter { font-size: 0.6rem; color: #888; }
+
+        /* Tasks */
+        .tasks-list { overflow-y: auto; padding: 8px; max-height: 200px; }
+        .task-item {
+            padding: 8px; background: rgba(0, 0, 0, 0.3);
+            border-radius: 4px; margin-bottom: 4px;
+            border-left: 3px solid #ffaa00;
+        }
+        .task-item.current { border-left-color: #00ff88; background: rgba(0, 255, 136, 0.1); }
+        .task-title { font-size: 0.8rem; font-weight: bold; }
+        .task-desc { font-size: 0.7rem; color: #888; }
+
+        /* Map */
+        #map { position: relative; background: #0a0a12; }
+        .leaflet-container { background: #0a0a12; }
+
+        /* Radar */
+        .radar {
+            position: absolute; bottom: 15px; right: 15px;
+            width: 180px; height: 180px;
+            background: radial-gradient(circle, rgba(0,20,0,0.95) 0%, rgba(0,40,0,0.8) 100%);
+            border: 2px solid #00ff88; border-radius: 50%; z-index: 1000;
+        }
+        .radar-ring {
+            position: absolute; border: 1px solid rgba(0, 255, 136, 0.15);
+            border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        }
+        .radar-sweep {
+            position: absolute; width: 50%; height: 2px;
+            background: linear-gradient(90deg, transparent, #00ff88);
+            top: 50%; left: 50%; transform-origin: left center;
+            animation: sweep 3s linear infinite;
+        }
+        @keyframes sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .radar-center {
+            position: absolute; width: 8px; height: 8px; background: #00ff88;
+            border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            box-shadow: 0 0 10px #00ff88;
+        }
+        .radar-label {
+            position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%);
+            font-size: 0.65rem; color: #00ff88; white-space: nowrap;
+        }
+        .radar-blip {
+            position: absolute; width: 6px; height: 6px;
+            border-radius: 50%; transform: translate(-50%, -50%);
+        }
+        .radar-blip.enemy { background: #ff4444; box-shadow: 0 0 8px #ff4444; }
+        .radar-blip.friendly { background: #4488ff; box-shadow: 0 0 6px #4488ff; }
+
+        /* Map Markers */
+        .player-marker {
+            background: #00ff88 !important; border: 3px solid #fff !important;
+            border-radius: 50% !important; box-shadow: 0 0 20px rgba(0, 255, 136, 0.8) !important;
+        }
+        .friendly-marker { background: #4488ff; border: 2px solid #fff; border-radius: 50%; }
+        .contact-marker {
+            background: #ff4444; border: 2px solid #fff; border-radius: 50%;
+            animation: contact-pulse 1s infinite;
+        }
+        @keyframes contact-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0a12; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div class="login-screen" id="loginScreen">
+        <div class="login-title">TACTICAL FEED</div>
+        <div class="login-subtitle">Squad-shared intelligence system</div>
+        <div class="login-box">
+            <label class="login-label">Enter your in-game name:</label>
+            <input type="text" class="login-input" id="playerNameInput" placeholder="e.g., Carlo">
+            <button class="login-btn" onclick="login()">CONNECT</button>
+            <div class="player-list" id="playerList">
+                <div class="player-list-title">ACTIVE PLAYERS:</div>
+                <div id="playerButtons">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div class="container" id="mainDashboard" style="display:none">
+        <div class="header">
+            <h1>TACTICAL FEED</h1>
+            <div class="player-badge">
+                <span class="name" id="displayName">--</span>
+                <span style="color:#888;font-size:0.7rem">SQUAD MODE</span>
+            </div>
+            <div class="status-bar">
+                <div class="status-pill">
+                    <span id="mapName">Unknown</span>
+                </div>
+                <div class="status-pill">
+                    <div class="status-dot" id="connectionDot"></div>
+                    <span id="connectionStatus">Connecting...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="panel-section">
+                <div class="panel-title">YOUR STATUS</div>
+                <div class="player-stats">
+                    <div class="stat-box">
+                        <div class="stat-value" id="posX">0</div>
+                        <div class="stat-label">X</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" id="posY">0</div>
+                        <div class="stat-label">Y</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" id="health">100%</div>
+                        <div class="stat-label">Health</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" id="squadSize">0</div>
+                        <div class="stat-label">Squad</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title">
+                    <span>SQUAD</span>
+                    <span id="squadCount">0</span>
+                </div>
+            </div>
+            <div class="squad-list" id="squadList"></div>
+
+            <div class="panel-section">
+                <div class="panel-title">
+                    <span>CONTACTS</span>
+                    <span id="contactCount">0</span>
+                </div>
+            </div>
+            <div class="contacts-list" id="contactsList"></div>
+
+            <div class="panel-section">
+                <div class="panel-title">
+                    <span>TASKS</span>
+                    <span id="taskCount">0</span>
+                </div>
+            </div>
+            <div class="tasks-list" id="tasksList"></div>
+        </div>
+
+        <div id="map">
+            <div class="radar">
+                <div class="radar-ring" style="width:33%;height:33%"></div>
+                <div class="radar-ring" style="width:66%;height:66%"></div>
+                <div class="radar-ring" style="width:95%;height:95%"></div>
+                <div class="radar-sweep"></div>
+                <div class="radar-center"></div>
+                <div id="radarBlips"></div>
+                <div class="radar-label">SQUAD CONTACTS</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentPlayer = null;
+        let ws = null;
+        let playerPos = [0, 0];
+
+        // Map setup
+        const MAP_CONFIGS = {
+            altis: { size: 30720, tiles: 'https://jetelain.github.io/Arma3Map/maps/altis/{z}/{x}/{y}.png' },
+            stratis: { size: 8192, tiles: 'https://jetelain.github.io/Arma3Map/maps/stratis/{z}/{x}/{y}.png' },
+            tanoa: { size: 15360, tiles: 'https://jetelain.github.io/Arma3Map/maps/tanoa/{z}/{x}/{y}.png' },
+            lythium: { size: 20480, tiles: 'https://jetelain.github.io/Arma3Map/maps/lythium/{z}/{x}/{y}.png' },
+            livonia: { size: 12800, tiles: 'https://jetelain.github.io/Arma3Map/maps/enoch/{z}/{x}/{y}.png' }
+        };
+
+        let currentMap = 'altis', mapSize = 30720;
+        let map, tileLayer, playerMarker;
+        let friendlyMarkers = [], contactMarkers = [];
+
+        function createCRS(size) {
+            const sf = 256 / size;
+            return L.extend({}, L.CRS.Simple, { transformation: new L.Transformation(sf, 0, -sf, 256) });
+        }
+
+        function initMap() {
+            map = L.map('map', {
+                crs: createCRS(mapSize), minZoom: 0, maxZoom: 6,
+                center: [mapSize/2, mapSize/2], zoom: 3
+            });
+            tileLayer = L.tileLayer(MAP_CONFIGS.altis.tiles, {
+                minZoom: 0, maxZoom: 6, tileSize: 256, noWrap: true
+            }).addTo(map);
+        }
+
+        function switchMap(name) {
+            const cfg = MAP_CONFIGS[name.toLowerCase()];
+            if (!cfg) return;
+            currentMap = name.toLowerCase();
+            mapSize = cfg.size;
+            map.options.crs = createCRS(mapSize);
+            tileLayer.setUrl(cfg.tiles);
+            document.getElementById('mapName').textContent = name;
+        }
+
+        // Login
+        function login() {
+            const name = document.getElementById('playerNameInput').value.trim();
+            if (!name) return;
+            currentPlayer = name;
+            document.getElementById('displayName').textContent = name;
+            document.getElementById('loginScreen').classList.add('hidden');
+            document.getElementById('mainDashboard').style.display = 'grid';
+            initMap();
+            connect();
+        }
+
+        function selectPlayer(name) {
+            document.getElementById('playerNameInput').value = name;
+            login();
+        }
+
+        // WebSocket
+        function connect() {
+            ws = new WebSocket(`ws://${location.host}/ws?player=${encodeURIComponent(currentPlayer)}`);
+
+            ws.onopen = () => {
+                document.getElementById('connectionDot').classList.add('connected');
+                document.getElementById('connectionStatus').textContent = 'Connected';
+            };
+
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                if (msg.type === 'playerUpdate') updateDashboard(msg.data);
+                if (msg.type === 'playerList') updatePlayerList(msg.players);
+                if (msg.type === 'waiting') console.log(msg.message);
+            };
+
+            ws.onclose = () => {
+                document.getElementById('connectionDot').classList.remove('connected');
+                document.getElementById('connectionStatus').textContent = 'Disconnected';
+                setTimeout(connect, 3000);
+            };
+        }
+
+        function updatePlayerList(players) {
+            const container = document.getElementById('playerButtons');
+            if (players.length === 0) {
+                container.innerHTML = '<div style="color:#666;font-size:0.8rem">No players online yet</div>';
+                return;
+            }
+            container.innerHTML = players.map(p =>
+                `<button class="player-btn" onclick="selectPlayer('${p}')">${p}</button>`
+            ).join('');
+        }
+
+        function updateDashboard(data) {
+            if (!data) return;
+
+            // Map switch
+            if (data.map) switchMap(data.map);
+
+            // Player stats
+            if (data.player) {
+                const [name, uid, pos, dmg, fatigue, weapon, side, grp, sqSize, rating, score] = data.player;
+                if (pos) {
+                    playerPos = [pos[0], pos[1]];
+                    document.getElementById('posX').textContent = Math.round(pos[0]);
+                    document.getElementById('posY').textContent = Math.round(pos[1]);
+                    updatePlayerMarker(pos[0], pos[1]);
+                }
+                document.getElementById('health').textContent = Math.round((1 - dmg) * 100) + '%';
+                document.getElementById('squadSize').textContent = sqSize || 0;
+            }
+
+            // Summary
+            if (data.summary) {
+                document.getElementById('squadCount').textContent = data.summary.friendlies || 0;
+                document.getElementById('contactCount').textContent = data.summary.contacts || 0;
+                document.getElementById('taskCount').textContent = data.summary.tasks || 0;
+            }
+
+            // Squad list
+            updateSquadList(data.friendlies || []);
+
+            // Contacts
+            updateContacts(data.contacts || []);
+
+            // Tasks
+            updateTasks(data.tasks || []);
+
+            // Update markers
+            updateMapMarkers(data.friendlies || [], data.contacts || []);
+            updateRadar(data.contacts || []);
+        }
+
+        function updatePlayerMarker(x, y) {
+            const pos = [y, x];
+            if (!playerMarker) {
+                playerMarker = L.marker(pos, {
+                    icon: L.divIcon({ className: 'player-marker', iconSize: [16, 16], iconAnchor: [8, 8] }),
+                    zIndexOffset: 1000
+                }).addTo(map);
+            } else {
+                playerMarker.setLatLng(pos);
+            }
+        }
+
+        function updateSquadList(friendlies) {
+            const list = document.getElementById('squadList');
+            if (friendlies.length === 0) {
+                list.innerHTML = '<div style="color:#666;padding:8px;font-size:0.75rem">No squad data</div>';
+                return;
+            }
+            list.innerHTML = friendlies.map(f => {
+                const [name, pos, grp, isPlayer, dmg] = f;
+                const isYou = name.toLowerCase() === currentPlayer.toLowerCase();
+                const health = Math.round((1 - (dmg || 0)) * 100);
+                return `
+                    <div class="squad-member ${isYou ? 'player' : ''}">
+                        <div class="member-icon ${isYou ? 'you' : ''}">${isPlayer ? 'P' : 'AI'}</div>
+                        <span class="member-name">${name}${isYou ? ' (You)' : ''}</span>
+                        <span class="member-status">${health}%</span>
+                    </div>`;
+            }).join('');
+        }
+
+        function updateContacts(contacts) {
+            const list = document.getElementById('contactsList');
+            if (contacts.length === 0) {
+                list.innerHTML = '<div style="color:#666;padding:8px;font-size:0.75rem">No contacts detected</div>';
+                return;
+            }
+            list.innerHTML = contacts.slice(0, 15).map(c => {
+                const [id, pos, side, knowledge, alive, cls, type, spotter] = c;
+                const dist = Math.round(Math.sqrt(Math.pow(pos[0]-playerPos[0],2) + Math.pow(pos[1]-playerPos[1],2)));
+                return `
+                    <div class="contact-item">
+                        <div class="contact-icon">${type === 'infantry' ? 'I' : 'V'}</div>
+                        <div>
+                            <div class="contact-info">${side} ${type} - ${dist}m</div>
+                            <div class="contact-spotter">Spotted by: ${spotter || 'Unknown'}</div>
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
+        function updateTasks(tasks) {
+            const list = document.getElementById('tasksList');
+            if (tasks.length === 0) {
+                list.innerHTML = '<div style="color:#666;padding:8px;font-size:0.75rem">No active tasks</div>';
+                return;
+            }
+            list.innerHTML = tasks.map(t => {
+                const [name, desc, pos, state, isCurrent] = t;
+                return `
+                    <div class="task-item ${isCurrent ? 'current' : ''}">
+                        <div class="task-title">${name || 'Task'}</div>
+                        <div class="task-desc">${desc || state}</div>
+                    </div>`;
+            }).join('');
+        }
+
+        function updateMapMarkers(friendlies, contacts) {
+            // Clear old
+            friendlyMarkers.forEach(m => map.removeLayer(m));
+            contactMarkers.forEach(m => map.removeLayer(m));
+            friendlyMarkers = [];
+            contactMarkers = [];
+
+            // Friendlies
+            friendlies.forEach(f => {
+                const [name, pos] = f;
+                if (!pos || name.toLowerCase() === currentPlayer.toLowerCase()) return;
+                const m = L.marker([pos[1], pos[0]], {
+                    icon: L.divIcon({ className: 'friendly-marker', iconSize: [10, 10], iconAnchor: [5, 5] })
+                }).bindPopup(name).addTo(map);
+                friendlyMarkers.push(m);
+            });
+
+            // Contacts
+            contacts.forEach(c => {
+                const [id, pos, side, knowledge] = c;
+                if (!pos) return;
+                const m = L.marker([pos[1], pos[0]], {
+                    icon: L.divIcon({ className: 'contact-marker', iconSize: [8, 8], iconAnchor: [4, 4] })
+                }).bindPopup(`${side} contact`).addTo(map);
+                contactMarkers.push(m);
+            });
+        }
+
+        function updateRadar(contacts) {
+            const blips = document.getElementById('radarBlips');
+            blips.innerHTML = '';
+            const radarR = 90, range = 800;
+
+            contacts.forEach(c => {
+                const [id, pos] = c;
+                if (!pos) return;
+                const dx = pos[0] - playerPos[0], dy = pos[1] - playerPos[1];
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist > range) return;
+
+                const angle = Math.atan2(dy, dx);
+                const r = (dist / range) * (radarR - 10);
+                const x = radarR + r * Math.cos(angle);
+                const y = radarR - r * Math.sin(angle);
+
+                const blip = document.createElement('div');
+                blip.className = 'radar-blip enemy';
+                blip.style.left = x + 'px';
+                blip.style.top = y + 'px';
+                blips.appendChild(blip);
+            });
+        }
+
+        // Load player list on start
+        fetch('/api/players').then(r => r.json()).then(data => {
+            if (data.players) updatePlayerList(data.players.map(p => p.name));
+        }).catch(() => {});
+
+        // Check URL for player param
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlPlayer = urlParams.get('player');
+        if (urlPlayer) {
+            document.getElementById('playerNameInput').value = urlPlayer;
+            login();
+        }
+    </script>
+</body>
+</html>
