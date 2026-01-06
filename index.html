@@ -263,6 +263,8 @@
         <div class="login-title">TACTICAL FEED</div>
         <div class="login-subtitle">Squad-shared intelligence system</div>
         <div class="login-box">
+            <label class="login-label">Host Server IP (leave blank if you're the host):</label>
+            <input type="text" class="login-input" id="serverInput" placeholder="e.g., 192.168.196.5:1338">
             <label class="login-label">Enter your in-game name:</label>
             <input type="text" class="login-input" id="playerNameInput" placeholder="e.g., Carlo">
             <button class="login-btn" onclick="login()">CONNECT</button>
@@ -355,6 +357,7 @@
 
     <script>
         let currentPlayer = null;
+        let serverAddress = null;
         let ws = null;
         let playerPos = [0, 0];
 
@@ -401,6 +404,11 @@
             const name = document.getElementById('playerNameInput').value.trim();
             if (!name) return;
             currentPlayer = name;
+
+            // Get server address - use input or default to current host
+            const serverInput = document.getElementById('serverInput').value.trim();
+            serverAddress = serverInput || location.host || 'localhost:1338';
+
             document.getElementById('displayName').textContent = name;
             document.getElementById('loginScreen').classList.add('hidden');
             document.getElementById('mainDashboard').style.display = 'grid';
@@ -415,7 +423,7 @@
 
         // WebSocket
         function connect() {
-            ws = new WebSocket(`ws://${location.host}/ws?player=${encodeURIComponent(currentPlayer)}`);
+            ws = new WebSocket(`ws://${serverAddress}/ws?player=${encodeURIComponent(currentPlayer)}`);
 
             ws.onopen = () => {
                 document.getElementById('connectionDot').classList.add('connected');

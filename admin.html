@@ -508,8 +508,12 @@
 
         let ws = null, reconnectTimer = null;
 
+        // Get server from URL param or use current host
+        const urlParams = new URLSearchParams(window.location.search);
+        const serverAddress = urlParams.get('server') || window.location.host || 'localhost:1338';
+
         function connect() {
-            ws = new WebSocket(`ws://${window.location.host}/ws`);
+            ws = new WebSocket(`ws://${serverAddress}/ws`);
             ws.onopen = () => {
                 document.getElementById('connectionDot').classList.add('connected');
                 document.getElementById('connectionStatus').textContent = 'Connected';
@@ -560,7 +564,7 @@
         function sendCommand() {
             const inp = document.getElementById('commandInput'), cmd = inp.value.trim();
             if (!cmd) return;
-            fetch('/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: cmd }) })
+            fetch(`http://${serverAddress}/api/command`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: cmd }) })
                 .then(r => { if (r.ok) { addEvent('objective', 'Cmd: ' + cmd.slice(0, 40)); inp.value = ''; } });
         }
         function quickCmd(c) { document.getElementById('commandInput').value = c; sendCommand(); }
@@ -568,7 +572,7 @@
 
         async function poll() {
             if (ws && ws.readyState === WebSocket.OPEN) return;
-            try { const r = await fetch('/api/state'); handleMessage({ type: 'fullUpdate', data: await r.json() }); } catch (e) {}
+            try { const r = await fetch(`http://${serverAddress}/api/state`); handleMessage({ type: 'fullUpdate', data: await r.json() }); } catch (e) {}
         }
 
         connect();
