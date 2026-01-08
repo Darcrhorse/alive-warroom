@@ -26,9 +26,18 @@ public:
 
 private:
     std::string serverUrl;
+    std::string host;
+    int port;
+    bool isHttps;
     bool connected;
+    
+    // URL parsing
+    void parseServerUrl(const std::string& url);
+    
+    // Connection testing
+    void testConnection();
 
-    // HTTP request helper
+    // HTTP request helpers
     std::string httpPost(const std::string& endpoint, const std::string& data);
     std::string httpGet(const std::string& endpoint);
 };
