@@ -18,7 +18,7 @@ class CfgFunctions {
         tag = "LLMGM";
         
         class Core {
-            file = "\llmgm\functions";
+            file = "\x\llmgm\addons\main\functions";
             
             class initGameMaster {
                 postInit = 0;

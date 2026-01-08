@@ -1,0 +1,13 @@
+name = "LLM Game Master";
+picture = "llmgm_logo.paa";
+logo = "llmgm_logo.paa";
+logoSmall = "llmgm_logo_small.paa";
+logoOver = "llmgm_logo.paa";
+tooltip = "LLM Game Master";
+tooltipOwned = "LLM Game Master - Owned";
+overview = "AI-powered Game Master using Large Language Models to dynamically control Arma 3 gameplay";
+author = "LLM GM Team";
+action = "https://github.com/Darcrhorse/alive-warroom";
+actionName = "GitHub";
+hideName = 0;
+hidePicture = 0;
