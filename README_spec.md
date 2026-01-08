@@ -1,19 +1,186 @@
 Project Request: Arma 3 LLM-Powered Game Master
 Project Overview
 Build an AI-powered Zeus/Game Master system for Arma 3 that uses Large Language Models (LLMs) to dynamically generate and inject SQF code in real-time, creating an autonomous game master experience without human oversight.
-Problem Statement
-Arma 3's Zeus mode requires a human game master to spawn units, set objectives, and direct scenarios. Current AI solutions are either:
-Rule-based mission generators (ALiVE, DUWS, Antistasi) - deterministic and predictable
-LLM conversation handlers (DCO GPT) - only handle NPC dialogue, don't generate gameplay
-Gap: No system exists that combines LLM intelligence with actual Zeus-like game control (spawning units, creating objectives, adjusting difficulty dynamically).
-Project Goals
-Create a modular system that:
-Extracts game state from Arma 3 (player positions, units, objectives, events)
-Sends context to an LLM (OpenAI GPT-4, Claude, or local models)
-Receives natural language decisions from the LLM
-Translates decisions into valid SQF code
-Validates and safely injects SQF into the running game
-Maintains narrative coherence and adaptive difficulty
+- **🤖 Intelligent Game Master**: LLM analyzes game state and makes strategic decisions
+- **⚡ Real-time Code Generation**: Dynamically creates valid Arma 3 SQF code
+- **🛡️ Security-First**: Multi-layer validation prevents malicious code execution
+- **🔄 Adaptive Difficulty**: Adjusts challenge based on player performance
+- **📊 Event-Driven**: Learns from player actions and mission progress
+- **🔌 Modular Design**: Easy to swap LLM providers (OpenAI, Claude, Ollama)
+- **🧪 Testable**: Validate SQF without launching Arma 3
+
+## 📋 Requirements
+
+- **Arma 3** with [CBA_A3](https://steamcommunity.com/workshop/filedetails/?id=450814997)
+- **Node.js** >= 18.0.0
+- **OpenAI API Key** (or other LLM provider)
+- Optional: C++ compiler for extension (future)
+
+## 🚀 Quick Start
+
+### 1. Clone Repository
+```bash
+git clone https://github.com/Darcrhorse/alive-warroom.git
+cd alive-warroom
+```
+
+### 2. Setup Bridge Server
+```bash
+cd bridge
+npm install
+cp .env.example .env
+# Edit .env and add your OPENAI_API_KEY
+npm run build
+npm start
+```
+
+### 3. Install Arma 3 Addon
+Copy the `addon` folder to your Arma 3 mods directory:
+```
+Arma 3/@LLMGM/addons/llmgm/
+```
+
+Launch Arma 3 with: `-mod=@LLMGM;@CBA_A3`
+
+### 4. Test It
+Start a mission and watch the LLM Game Master take control! Check the bridge server logs and Arma 3 RPT for activity.
+
+## 📚 Documentation
+
+- **[Architecture](docs/ARCHITECTURE.md)** - System design and components
+- **[Setup Guide](docs/SETUP.md)** - Detailed installation and configuration
+- **[System Prompts](prompts/system-prompt.md)** - LLM instructions and examples
+- **[SQF Reference](prompts/sqf-reference.md)** - Arma 3 command reference
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         ARMA 3 GAME                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │ Game State   │  │   SQF        │  │  Extension Callback  │  │
+│  │ Collector    │  │   Executor   │  │  (callExtension)     │  │
+│  └──────┬───────┘  └──────▲───────┘  └──────────┬───────────┘  │
+└─────────┼─────────────────┼─────────────────────┼───────────────┘
+          │ JSON            │ SQF                 │ DLL/SO
+          ▼                 │                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      BRIDGE SERVER (Node.js)                    │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │ State        │  │   SQF        │  │  WebSocket/HTTP      │  │
+│  │ Manager      │  │   Validator  │  │  Server              │  │
+│  └──────┬───────┘  └──────▲───────┘  └──────────────────────┘  │
+│         │                 │                                     │
+│         ▼                 │                                     │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │              LLM Client (OpenAI/Claude/Local)            │  │
+│  │  - System prompts with SQF documentation                 │  │
+│  │  - Game state context injection                          │  │
+│  │  - Decision parsing and SQF extraction                   │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## 🔒 Security
+
+Security is paramount when executing LLM-generated code:
+
+1. **SQF Validator**: Checks syntax and structure
+2. **Security Scanner**: Blocks dangerous commands (endMission, serverCommand, etc.)
+3. **Sanitizer**: Removes malicious patterns
+4. **Dry-Run Mode**: Test without execution
+5. **Comprehensive Logging**: Audit all generated code
+
+### Forbidden Commands
+- Mission control: `endMission`, `failMission`, `forceEnd`
+- Server control: `serverCommand`, `admin`
+- File operations: `loadFile`, `saveProfileNamespace`
+- Player harm: `deleteVehicle player`, `setDamage 1`
+
+## 🧪 Testing
+
+Test SQF code without running Arma 3:
+
+```bash
+# Install testing tools
+pip3 install sqflint
+
+# Run SQF syntax tests
+python3 tools/test_sqf.py
+
+# Run TypeScript tests
+cd bridge
+npm test
+```
+
+## ⚙️ Configuration
+
+Key settings in `bridge/.env`:
+
+```bash
+# LLM Provider
+OPENAI_API_KEY=sk-your-key-here
+OPENAI_MODEL=gpt-4
+
+# Game Master Behavior
+GM_UPDATE_INTERVAL=30          # State update frequency
+GM_MIN_ACTION_INTERVAL=60      # Cooldown between actions
+GM_DIFFICULTY_BASE=5           # Base difficulty (1-10)
+
+# Safety
+SAFETY_DRY_RUN_MODE=false      # Test mode
+SAFETY_LOG_ALL_EXECUTIONS=true # Audit logging
+```
+
+## 📊 Project Status
+
+### ✅ Phase 1: Foundation (COMPLETE)
+- Node.js bridge server with LLM integration
+- Arma 3 addon with state collection and execution
+- Security-first SQF validation
+- Comprehensive documentation
+- Testing infrastructure
+
+### 🚧 Phase 2: Integration (In Progress)
+- C++ extension implementation
+- End-to-end integration tests
+- Development tools and scripts
+
+### 📅 Phase 3: Advanced Features (Planned)
+- Adaptive difficulty system
+- Multi-model support (Claude, Ollama)
+- Narrative event system
+- Performance optimization
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read our contributing guidelines and code of conduct.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **Bohemia Interactive** - For Arma 3 and the Community Wiki
+- **ALiVE Team** - Inspiration for dynamic mission systems
+- **CBA Team** - Essential framework
+- **DCO GPT** - Pioneering LLM integration in Arma 3
+- **SQF-VM & sqflint** - Testing tools
+
+## 📞 Support
+
+- **Issues**: [GitHub Issues](https://github.com/Darcrhorse/alive-warroom/issues)
+- **Documentation**: [docs/](docs/)
+- **Community**: [Discord](#) (coming soon)
+
+## ⚠️ Disclaimer
+
+This is an experimental project. Use at your own risk. Always backup your missions and test in single-player first. LLM-generated code is validated but not guaranteed to be perfect.
+
+---
+
+**Made with ❤️ for the Arma 3 community**
 Technical Architecture
 System Components
 ┌─────────────────────────────────────────────────────────────────┐

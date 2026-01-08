@@ -1,0 +1,14 @@
+node_modules/
+dist/
+logs/
+*.log
+.env
+.DS_Store
+*.pdb
+*.dll
+*.so
+*.dylib
+build/
+*.tgz
+coverage/
+.nyc_output/
