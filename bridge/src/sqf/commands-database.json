@@ -1,0 +1,436 @@
+{
+  "version": "0.1.0",
+  "source": "Bohemia Interactive Community Wiki + Manual Curation",
+  "description": "Essential Arma 3 SQF commands for LLM Game Master code generation",
+  "categories": {
+    "groupManagement": {
+      "createGroup": {
+        "syntax": ["createGroup side", "createGroup [side, deleteWhenEmpty]"],
+        "description": "Creates a new group on the given side",
+        "params": {
+          "side": "EAST, WEST, INDEPENDENT, CIVILIAN",
+          "deleteWhenEmpty": "Boolean - auto-delete when empty"
+        },
+        "returns": "Group",
+        "example": "_group = createGroup EAST;"
+      },
+      "deleteGroup": {
+        "syntax": ["deleteGroup group"],
+        "description": "Destroys the given group",
+        "params": {"group": "Group to delete"},
+        "returns": "Nothing",
+        "example": "deleteGroup _group;"
+      },
+      "units": {
+        "syntax": ["units group"],
+        "description": "Returns an array of units in the group",
+        "params": {"group": "Group"},
+        "returns": "Array of Objects",
+        "example": "_units = units _group;"
+      },
+      "leader": {
+        "syntax": ["leader group"],
+        "description": "Returns the leader of the group",
+        "params": {"group": "Group"},
+        "returns": "Object",
+        "example": "_leader = leader _group;"
+      }
+    },
+    "unitCreation": {
+      "createUnit": {
+        "syntax": ["group createUnit [type, position, markers, placement, special]"],
+        "description": "Creates a unit in the specified group",
+        "params": {
+          "type": "String - Unit classname (e.g., 'O_Soldier_F')",
+          "position": "Position or Object - Where to spawn",
+          "markers": "Array - Placement markers (usually [])",
+          "placement": "Number - Radius for random placement",
+          "special": "String - 'NONE', 'FORM', 'CAN_COLLIDE', 'CARGO'"
+        },
+        "returns": "Object",
+        "example": "_unit = _group createUnit ['O_Soldier_F', getPos player, [], 0, 'FORM'];"
+      },
+      "createVehicle": {
+        "syntax": ["createVehicle [type, position, markers, placement, special]"],
+        "description": "Creates a vehicle at the specified position",
+        "params": {
+          "type": "String - Vehicle classname",
+          "position": "Position - Where to spawn",
+          "markers": "Array - Usually []",
+          "placement": "Number - Radius",
+          "special": "String - 'NONE', 'FLY', 'CAN_COLLIDE'"
+        },
+        "returns": "Object",
+        "example": "_vehicle = createVehicle ['O_MRAP_02_F', [100, 200, 0], [], 0, 'NONE'];"
+      },
+      "createVehicleCrew": {
+        "syntax": ["createVehicleCrew vehicle"],
+        "description": "Creates crew for the vehicle",
+        "params": {"vehicle": "Object - Vehicle"},
+        "returns": "Group",
+        "example": "_crew = createVehicleCrew _vehicle;"
+      }
+    },
+    "behavior": {
+      "setBehaviour": {
+        "syntax": ["unit setBehaviour mode", "group setBehaviour mode"],
+        "description": "Sets the behaviour mode for unit or group",
+        "params": {
+          "mode": "String - 'CARELESS', 'SAFE', 'AWARE', 'COMBAT', 'STEALTH'"
+        },
+        "returns": "Nothing",
+        "example": "_group setBehaviour 'AWARE';"
+      },
+      "setCombatMode": {
+        "syntax": ["unit setCombatMode mode", "group setCombatMode mode"],
+        "description": "Sets when the unit will fire",
+        "params": {
+          "mode": "String - 'BLUE' (never), 'GREEN' (defend), 'YELLOW' (fire at will, formation), 'RED' (fire at will)"
+        },
+        "returns": "Nothing",
+        "example": "_group setCombatMode 'YELLOW';"
+      },
+      "setSpeedMode": {
+        "syntax": ["unit setSpeedMode mode", "group setSpeedMode mode"],
+        "description": "Sets the speed mode",
+        "params": {
+          "mode": "String - 'LIMITED', 'NORMAL', 'FULL'"
+        },
+        "returns": "Nothing",
+        "example": "_group setSpeedMode 'NORMAL';"
+      },
+      "setFormation": {
+        "syntax": ["group setFormation formation"],
+        "description": "Sets the group formation",
+        "params": {
+          "formation": "String - 'COLUMN', 'STAG COLUMN', 'WEDGE', 'ECH LEFT', 'ECH RIGHT', 'VEE', 'LINE', 'FILE', 'DIAMOND'"
+        },
+        "returns": "Nothing",
+        "example": "_group setFormation 'WEDGE';"
+      },
+      "setSkill": {
+        "syntax": ["unit setSkill skill", "unit setSkill [skillName, value]"],
+        "description": "Sets the unit's overall skill or specific skill",
+        "params": {
+          "skill": "Number 0-1",
+          "skillName": "String - 'aimingAccuracy', 'aimingShake', 'spotDistance', 'spotTime', 'courage', 'commanding', 'general'"
+        },
+        "returns": "Nothing",
+        "example": "_unit setSkill 0.7;"
+      }
+    },
+    "waypoints": {
+      "addWaypoint": {
+        "syntax": ["group addWaypoint [position, radius, index, name]"],
+        "description": "Adds a waypoint to the group",
+        "params": {
+          "position": "Position or Object",
+          "radius": "Number - Completion radius",
+          "index": "Number - Optional",
+          "name": "String - Optional"
+        },
+        "returns": "Array - Waypoint",
+        "example": "_wp = _group addWaypoint [getPos player, 0];"
+      },
+      "setWaypointType": {
+        "syntax": ["waypoint setWaypointType type"],
+        "description": "Sets the waypoint type",
+        "params": {
+          "type": "String - 'MOVE', 'DESTROY', 'GETIN', 'SAD', 'JOIN', 'LEADER', 'GETOUT', 'CYCLE', 'LOAD', 'UNLOAD', 'TR UNLOAD', 'HOLD', 'SENTRY', 'GUARD', 'TALK', 'SCRIPTED', 'SUPPORT', 'GETIN NEAREST', 'DISMISS', 'LOITER'"
+        },
+        "returns": "Nothing",
+        "example": "_wp setWaypointType 'MOVE';"
+      },
+      "setWaypointBehaviour": {
+        "syntax": ["waypoint setWaypointBehaviour behaviour"],
+        "description": "Sets waypoint behaviour",
+        "params": {
+          "behaviour": "String - 'UNCHANGED', 'CARELESS', 'SAFE', 'AWARE', 'COMBAT', 'STEALTH'"
+        },
+        "returns": "Nothing",
+        "example": "_wp setWaypointBehaviour 'COMBAT';"
+      },
+      "setWaypointCombatMode": {
+        "syntax": ["waypoint setWaypointCombatMode mode"],
+        "description": "Sets waypoint combat mode",
+        "params": {
+          "mode": "String - 'NO CHANGE', 'BLUE', 'GREEN', 'WHITE', 'YELLOW', 'RED'"
+        },
+        "returns": "Nothing",
+        "example": "_wp setWaypointCombatMode 'YELLOW';"
+      },
+      "setWaypointSpeed": {
+        "syntax": ["waypoint setWaypointSpeed speed"],
+        "description": "Sets waypoint speed",
+        "params": {
+          "speed": "String - 'UNCHANGED', 'LIMITED', 'NORMAL', 'FULL'"
+        },
+        "returns": "Nothing",
+        "example": "_wp setWaypointSpeed 'NORMAL';"
+      }
+    },
+    "bisFunctions": {
+      "BIS_fnc_spawnGroup": {
+        "syntax": ["[position, side, unitArray] call BIS_fnc_spawnGroup"],
+        "description": "Spawns a group with specified units",
+        "params": {
+          "position": "Position",
+          "side": "Side - EAST, WEST, INDEPENDENT, CIVILIAN",
+          "unitArray": "Array of Strings - Unit classnames"
+        },
+        "returns": "Group",
+        "example": "_group = [[100,200,0], EAST, ['O_Soldier_TL_F', 'O_Soldier_F']] call BIS_fnc_spawnGroup;"
+      },
+      "BIS_fnc_taskPatrol": {
+        "syntax": ["[group, position, radius, waypointCount, mode] call BIS_fnc_taskPatrol"],
+        "description": "Makes group patrol an area",
+        "params": {
+          "group": "Group",
+          "position": "Position - Center of patrol",
+          "radius": "Number - Patrol radius",
+          "waypointCount": "Number - Optional",
+          "mode": "String - Optional 'MOVE' or 'SAD'"
+        },
+        "returns": "Nothing",
+        "example": "[_group, getPos player, 150] call BIS_fnc_taskPatrol;"
+      },
+      "BIS_fnc_taskDefend": {
+        "syntax": ["[group, position, radius, infantry, threshold] call BIS_fnc_taskDefend"],
+        "description": "Makes group defend a position",
+        "params": {
+          "group": "Group",
+          "position": "Position",
+          "radius": "Number",
+          "infantry": "Number - Optional",
+          "threshold": "Number - Optional"
+        },
+        "returns": "Nothing",
+        "example": "[_group, getPos player, 100] call BIS_fnc_taskDefend;"
+      },
+      "BIS_fnc_taskAttack": {
+        "syntax": ["[group, position] call BIS_fnc_taskAttack"],
+        "description": "Makes group attack a position",
+        "params": {
+          "group": "Group",
+          "position": "Position"
+        },
+        "returns": "Nothing",
+        "example": "[_group, getPos player] call BIS_fnc_taskAttack;"
+      },
+      "BIS_fnc_relPos": {
+        "syntax": ["[position, distance, direction] call BIS_fnc_relPos"],
+        "description": "Returns relative position",
+        "params": {
+          "position": "Position",
+          "distance": "Number - Distance in meters",
+          "direction": "Number - Direction in degrees (0-360)"
+        },
+        "returns": "Position",
+        "example": "_spawnPos = [getPos player, 300, 90] call BIS_fnc_relPos;"
+      },
+      "BIS_fnc_taskCreate": {
+        "syntax": ["[owner, taskID, description, destination, state, priority, showNotification, type, visibleIn3D] call BIS_fnc_taskCreate"],
+        "description": "Creates a task",
+        "params": {
+          "owner": "Object, Group, Side, Array, or true (all players)",
+          "taskID": "String - Unique task ID",
+          "description": "Array - [description, title, marker]",
+          "destination": "Position, Object, or Task",
+          "state": "String - 'CREATED', 'ASSIGNED', 'SUCCEEDED', 'FAILED', 'CANCELED'",
+          "priority": "Number - 0-10",
+          "showNotification": "Boolean",
+          "type": "String - 'ATTACK', 'DEFEND', 'MOVE', etc.",
+          "visibleIn3D": "Boolean - Optional"
+        },
+        "returns": "String - Task ID",
+        "example": "[true, 'task1', ['Clear area', 'Assault', ''], getPos player, 'CREATED', 1, true, 'ATTACK'] call BIS_fnc_taskCreate;"
+      },
+      "BIS_fnc_taskSetState": {
+        "syntax": ["[taskID, state, showNotification] call BIS_fnc_taskSetState"],
+        "description": "Sets task state",
+        "params": {
+          "taskID": "String",
+          "state": "String - 'SUCCEEDED', 'FAILED', 'CANCELED'",
+          "showNotification": "Boolean - Optional"
+        },
+        "returns": "Nothing",
+        "example": "['task1', 'SUCCEEDED'] call BIS_fnc_taskSetState;"
+      }
+    },
+    "position": {
+      "getPosATL": {
+        "syntax": ["getPosATL object"],
+        "description": "Gets position above terrain level",
+        "params": {"object": "Object"},
+        "returns": "Position",
+        "example": "_pos = getPosATL player;"
+      },
+      "getPosASL": {
+        "syntax": ["getPosASL object"],
+        "description": "Gets position above sea level",
+        "params": {"object": "Object"},
+        "returns": "Position",
+        "example": "_pos = getPosASL player;"
+      },
+      "getPos": {
+        "syntax": ["getPos object"],
+        "description": "Gets position (height above ground)",
+        "params": {"object": "Object"},
+        "returns": "Position",
+        "example": "_pos = getPos player;"
+      },
+      "setPosATL": {
+        "syntax": ["object setPosATL position"],
+        "description": "Sets position above terrain level",
+        "params": {
+          "object": "Object",
+          "position": "Position [x,y,z]"
+        },
+        "returns": "Nothing",
+        "example": "_unit setPosATL [100, 200, 0];"
+      },
+      "position": {
+        "syntax": ["position object"],
+        "description": "Gets position",
+        "params": {"object": "Object"},
+        "returns": "Position",
+        "example": "_pos = position player;"
+      }
+    },
+    "communication": {
+      "sideChat": {
+        "syntax": ["unit sideChat text"],
+        "description": "Sends a side chat message",
+        "params": {
+          "unit": "Object",
+          "text": "String"
+        },
+        "returns": "Nothing",
+        "example": "player sideChat 'Hello';"
+      },
+      "systemChat": {
+        "syntax": ["systemChat text"],
+        "description": "Shows system message",
+        "params": {"text": "String"},
+        "returns": "Nothing",
+        "example": "systemChat 'Mission started';"
+      },
+      "hint": {
+        "syntax": ["hint text"],
+        "description": "Shows a hint",
+        "params": {"text": "String"},
+        "returns": "Nothing",
+        "example": "hint 'Objective complete';"
+      }
+    },
+    "remoteExecution": {
+      "remoteExec": {
+        "syntax": ["arguments remoteExec [functionName, targets, JIP]"],
+        "description": "Executes function on remote machines",
+        "params": {
+          "arguments": "Any - Parameters for function",
+          "functionName": "String - Function to execute",
+          "targets": "Number, Object, Side, Group, or Array - 0 = everyone, 2 = server",
+          "JIP": "String or Boolean - Optional JIP"
+        },
+        "returns": "Nothing",
+        "example": "['Message'] remoteExec ['systemChat', 0];"
+      }
+    },
+    "unitQuery": {
+      "allUnits": {
+        "syntax": ["allUnits"],
+        "description": "Returns all units (including dead)",
+        "params": {},
+        "returns": "Array of Objects",
+        "example": "_all = allUnits;"
+      },
+      "allPlayers": {
+        "syntax": ["allPlayers"],
+        "description": "Returns all player units",
+        "params": {},
+        "returns": "Array of Objects",
+        "example": "_players = allPlayers;"
+      },
+      "allGroups": {
+        "syntax": ["allGroups"],
+        "description": "Returns all groups",
+        "params": {},
+        "returns": "Array of Groups",
+        "example": "_groups = allGroups;"
+      },
+      "side": {
+        "syntax": ["side unit"],
+        "description": "Returns the side of unit",
+        "params": {"unit": "Object"},
+        "returns": "Side",
+        "example": "_unitSide = side _unit;"
+      },
+      "alive": {
+        "syntax": ["alive unit"],
+        "description": "Checks if unit is alive",
+        "params": {"unit": "Object"},
+        "returns": "Boolean",
+        "example": "if (alive _unit) then {};"
+      },
+      "vehicle": {
+        "syntax": ["vehicle unit"],
+        "description": "Returns the vehicle the unit is in",
+        "params": {"unit": "Object"},
+        "returns": "Object",
+        "example": "_veh = vehicle player;"
+      }
+    },
+    "commonClasses": {
+      "opfor_infantry": [
+        "O_Soldier_F",
+        "O_Soldier_TL_F",
+        "O_Soldier_AR_F",
+        "O_Soldier_GL_F",
+        "O_medic_F",
+        "O_Soldier_AT_F",
+        "O_Soldier_AA_F",
+        "O_engineer_F",
+        "O_Soldier_M_F",
+        "O_Soldier_SL_F",
+        "O_HeavyGunner_F"
+      ],
+      "opfor_vehicles": [
+        "O_MRAP_02_F",
+        "O_MRAP_02_hmg_F",
+        "O_Truck_03_transport_F",
+        "O_Truck_03_covered_F",
+        "O_APC_Wheeled_02_rcws_F",
+        "O_APC_Tracked_02_cannon_F",
+        "O_MBT_02_cannon_F"
+      ],
+      "blufor_infantry": [
+        "B_Soldier_F",
+        "B_Soldier_TL_F",
+        "B_Soldier_AR_F",
+        "B_Soldier_GL_F",
+        "B_medic_F",
+        "B_Soldier_AT_F",
+        "B_Soldier_AA_F",
+        "B_engineer_F",
+        "B_soldier_M_F",
+        "B_Soldier_SL_F",
+        "B_HeavyGunner_F"
+      ]
+    }
+  },
+  "forbiddenCommands": [
+    "endMission",
+    "failMission",
+    "forceEnd",
+    "terminate",
+    "exitWith",
+    "serverCommand",
+    "admin",
+    "saveProfileNamespace",
+    "loadFile",
+    "preprocessFile",
+    "deleteVehicle player",
+    "player setDamage 1"
+  ]
+}

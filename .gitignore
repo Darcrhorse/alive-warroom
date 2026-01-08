@@ -1,0 +1,36 @@
+# Project-wide
+node_modules/
+*.log
+.DS_Store
+.env
+
+# Bridge server
+bridge/dist/
+bridge/logs/
+bridge/coverage/
+bridge/.nyc_output/
+
+# C++ Extension
+extension/build/
+extension/deps/
+*.dll
+*.so
+*.dylib
+*.pdb
+*.o
+*.obj
+
+# Arma 3
+*.pbo
+*.pbo.bak
+*.biprivatekey
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
