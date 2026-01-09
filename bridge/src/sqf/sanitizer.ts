@@ -40,6 +40,18 @@ export class SQFSanitizer {
   }
 
   /**
+   * Sanitize SQF code by removing dangerous patterns
+   */
+  sanitize(sqf: string): string {
+    // Remove inline comments that might contain dangerous code
+    let sanitized = this.removeInlineComments(sqf);
+    
+    // Additional sanitization can be added here
+    // For now, just return the comment-sanitized version
+    return sanitized;
+  }
+
+  /**
    * Wrap code in safe execution context
    */
   wrapInSafeContext(sqf: string): string {
