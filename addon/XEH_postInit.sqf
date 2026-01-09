@@ -1,5 +1,3 @@
-#include "script_component.hpp"
-
 // CBA Extended Event Handler - Post-Init
 // This runs after all mission objects exist
 // Perfect for: registering event handlers, accessing mission objects, starting systems

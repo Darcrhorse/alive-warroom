@@ -1,15 +1,19 @@
-#include "script_component.hpp"
-
 // CBA Extended Event Handler - Pre-Init
 // This runs before mission objects are created
 // Perfect for: function compilation, variable initialization, settings
 
-ADDON = false;
+llmgm_main = false;
 
 // Compile functions
-PREP_RECOMPILE_START;
-#include "XEH_PREP.hpp"
-PREP_RECOMPILE_END;
+if (uiNamespace getVariable ["llmgm_recompile", false]) then {
+    llmgm_fnc_initGameMaster = {_this call llmgm_fnc_initGameMaster};
+    llmgm_fnc_collectGameState = {_this call llmgm_fnc_collectGameState};
+    llmgm_fnc_sendToBridge = {_this call llmgm_fnc_sendToBridge};
+    llmgm_fnc_receiveFromBridge = {_this call llmgm_fnc_receiveFromBridge};
+    llmgm_fnc_executeGenerated = {_this call llmgm_fnc_executeGenerated};
+    llmgm_fnc_logEvent = {_this call llmgm_fnc_logEvent};
+    llmgm_fnc_registerCallbacks = {_this call llmgm_fnc_registerCallbacks};
+};
 
 // Check if running on correct machine
 if (!hasInterface && !isDedicated) exitWith {};
@@ -18,18 +22,18 @@ diag_log "[LLMGM] XEH Pre-init starting...";
 
 // Initialize global variables (server-side)
 if (isServer) then {
-    GVAR(version) = "0.1.0";
-    GVAR(initialized) = false;
-    GVAR(enabled) = false;
-    GVAR(updateInterval) = 30;
-    GVAR(lastUpdate) = 0;
-    GVAR(actionQueue) = [];
-    GVAR(eventHistory) = [];
-    GVAR(maxHistorySize) = 100;
+    llmgm_main_version = "0.1.0";
+    llmgm_main_initialized = false;
+    llmgm_main_enabled = false;
+    llmgm_main_updateInterval = 30;
+    llmgm_main_lastUpdate = 0;
+    llmgm_main_actionQueue = [];
+    llmgm_main_eventHistory = [];
+    llmgm_main_maxHistorySize = 100;
     
-    diag_log format ["[LLMGM] Global variables initialized (v%1)", GVAR(version)];
+    diag_log format ["[LLMGM] Global variables initialized (v%1)", llmgm_main_version];
 };
 
-ADDON = true;
+llmgm_main = true;
 
 diag_log "[LLMGM] XEH Pre-init complete";

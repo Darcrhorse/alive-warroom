@@ -1,3 +1,15 @@
+class Extended_PreInit_EventHandlers {
+    class llmgm_main {
+        init = "call compile preprocessFileLineNumbers 'llmgm\XEH_preInit.sqf'";
+    };
+};
+
+class Extended_PostInit_EventHandlers {
+    class llmgm_main {
+        init = "call compile preprocessFileLineNumbers 'llmgm\XEH_postInit.sqf'";
+    };
+};
+
 class CfgPatches {
     class llmgm_main {
         name = "LLM Game Master";
@@ -6,7 +18,7 @@ class CfgPatches {
         units[] = {};
         weapons[] = {};
         requiredVersion = 2.00;
-        requiredAddons[] = {"A3_Functions_F", "cba_main"};
+        requiredAddons[] = {"A3_Functions_F", "cba_main", "cba_xeh"};
         version = "0.1.0";
         versionStr = "0.1.0";
         versionAr[] = {0,1,0};

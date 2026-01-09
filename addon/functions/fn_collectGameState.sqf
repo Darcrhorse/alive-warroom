@@ -24,7 +24,7 @@ private _players = [];
         _playerData set ["position", _posMap];
         
         _playerData set ["health", 1 - (damage _x)];
-        _playerData set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {null}];
+        _playerData set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {"none"}];
         _playerData set ["weapons", weapons _x];
         _playerData set ["currentTask", currentTask _x];
         
@@ -49,7 +49,7 @@ private _friendlyUnits = [];
         _unitData set ["position", _posMap];
         
         _unitData set ["health", 1 - (damage _x)];
-        _unitData set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {null}];
+        _unitData set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {"none"}];
         _unitData set ["behavior", behaviour _x];
         _unitData set ["side", "BLUFOR"];
         
@@ -83,7 +83,7 @@ private _enemyUnits = [];
             _unitData set ["position", _posMap];
             
             _unitData set ["health", 1 - (damage _x)];
-            _unitData set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {null}];
+            _unitData set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {"none"}];
             _unitData set ["behavior", behaviour _x];
             _unitData set ["side", "OPFOR"];
             
