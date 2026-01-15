@@ -14,6 +14,14 @@ import { sqfParser } from './sqf/parser';
 import { OpenAIClient } from './llm/openai';
 import { configManager } from './config/settings';
 import { logger } from './utils/logger';
+import {
+  IntelManager,
+  createIntelManager,
+  IntelSource,
+  TargetType,
+  CommanderSide,
+  CreateIntelReportParams,
+} from './commander/intel';
 
 export class BridgeServer {
   private app: express.Application;
@@ -22,9 +30,13 @@ export class BridgeServer {
   private llmClient: OpenAIClient | null = null;
   private actionQueue: Array<{ sqf: string; metadata: any }> = [];
   private lastActionTime: number = 0;
+  private eastIntelManager: IntelManager;
+  private westIntelManager: IntelManager;
 
   constructor() {
     this.app = express();
+    this.eastIntelManager = createIntelManager('EAST');
+    this.westIntelManager = createIntelManager('WEST');
     this.setupMiddleware();
     this.setupRoutes();
     this.setupLLMClient();
@@ -43,7 +55,7 @@ export class BridgeServer {
 
   private setupLLMClient(): void {
     const llmConfig = configManager.get('llm');
-    
+
     if (llmConfig.provider === 'openai' && llmConfig.apiKey) {
       this.llmClient = new OpenAIClient(
         llmConfig.apiKey,
@@ -55,6 +67,60 @@ export class BridgeServer {
     } else {
       logger.warn('LLM client not configured - running in passive mode');
     }
+  }
+
+  /**
+   * Gets the IntelManager for a specific side
+   * @param side Commander side (EAST or WEST)
+   * @returns IntelManager for the specified side, or null if invalid
+   */
+  private getIntelManager(side: string): IntelManager | null {
+    const normalizedSide = side.toUpperCase();
+    if (normalizedSide === 'EAST') {
+      return this.eastIntelManager;
+    } else if (normalizedSide === 'WEST') {
+      return this.westIntelManager;
+    }
+    return null;
+  }
+
+  /**
+   * Validates the side parameter from request
+   * @param side Side string from request params
+   * @returns Normalized side string or null if invalid
+   */
+  private validateSide(side: string): CommanderSide | null {
+    const normalizedSide = side?.toUpperCase();
+    if (normalizedSide === 'EAST' || normalizedSide === 'WEST') {
+      return normalizedSide as CommanderSide;
+    }
+    return null;
+  }
+
+  /**
+   * Validates intel source from request
+   * @param source Source string from request
+   * @returns IntelSource enum value or null if invalid
+   */
+  private validateIntelSource(source: string): IntelSource | null {
+    const validSources = Object.values(IntelSource);
+    if (validSources.includes(source as IntelSource)) {
+      return source as IntelSource;
+    }
+    return null;
+  }
+
+  /**
+   * Validates target type from request
+   * @param targetType Target type string from request
+   * @returns TargetType enum value or null if invalid
+   */
+  private validateTargetType(targetType: string): TargetType | null {
+    const validTypes = Object.values(TargetType);
+    if (validTypes.includes(targetType as TargetType)) {
+      return targetType as TargetType;
+    }
+    return null;
   }
 
   private setupRoutes(): void {
@@ -138,13 +204,225 @@ export class BridgeServer {
       try {
         configManager.updateConfig(req.body);
         logger.info('Configuration updated');
-        
+
         // Re-initialize LLM client if needed
         this.setupLLMClient();
-        
+
         res.json({ updated: true });
       } catch (error) {
         logger.error('Error updating config', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // =========================================================================
+    // Intel API Endpoints
+    // =========================================================================
+
+    // Get intel for a side
+    this.app.get('/api/intel/:side', (req: Request, res: Response) => {
+      try {
+        const { side } = req.params;
+        const validSide = this.validateSide(side);
+
+        if (!validSide) {
+          return res.status(400).json({
+            error: 'Invalid side parameter',
+            message: 'Side must be EAST or WEST',
+          });
+        }
+
+        const intelManager = this.getIntelManager(validSide);
+        if (!intelManager) {
+          return res.status(500).json({ error: 'Intel manager not found' });
+        }
+
+        const reports = intelManager.getAllReports();
+        const statistics = intelManager.getStatistics();
+
+        logger.info('Intel retrieved', {
+          side: validSide,
+          reportCount: reports.length,
+        });
+
+        res.json({
+          side: validSide,
+          reports,
+          statistics,
+          timestamp: Date.now(),
+        });
+      } catch (error) {
+        logger.error('Error getting intel', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Submit new intel report
+    this.app.post('/api/intel/report', (req: Request, res: Response) => {
+      try {
+        const { side, source, targetType, position, positionAccuracy, heading, speed, strength, confidence, notes } = req.body;
+
+        // Validate required fields
+        if (!side) {
+          return res.status(400).json({
+            error: 'Missing required field',
+            message: 'side is required',
+          });
+        }
+
+        const validSide = this.validateSide(side);
+        if (!validSide) {
+          return res.status(400).json({
+            error: 'Invalid side parameter',
+            message: 'Side must be EAST or WEST',
+          });
+        }
+
+        if (!source) {
+          return res.status(400).json({
+            error: 'Missing required field',
+            message: 'source is required',
+          });
+        }
+
+        const validSource = this.validateIntelSource(source);
+        if (!validSource) {
+          return res.status(400).json({
+            error: 'Invalid source parameter',
+            message: `Source must be one of: ${Object.values(IntelSource).join(', ')}`,
+          });
+        }
+
+        if (!targetType) {
+          return res.status(400).json({
+            error: 'Missing required field',
+            message: 'targetType is required',
+          });
+        }
+
+        const validTargetType = this.validateTargetType(targetType);
+        if (!validTargetType) {
+          return res.status(400).json({
+            error: 'Invalid targetType parameter',
+            message: `targetType must be one of: ${Object.values(TargetType).join(', ')}`,
+          });
+        }
+
+        if (!position || typeof position.x !== 'number' || typeof position.y !== 'number' || typeof position.z !== 'number') {
+          return res.status(400).json({
+            error: 'Invalid position parameter',
+            message: 'position must be an object with x, y, z number properties',
+          });
+        }
+
+        const intelManager = this.getIntelManager(validSide);
+        if (!intelManager) {
+          return res.status(500).json({ error: 'Intel manager not found' });
+        }
+
+        // Build report parameters
+        const reportParams: CreateIntelReportParams = {
+          source: validSource,
+          targetType: validTargetType,
+          position: {
+            x: position.x,
+            y: position.y,
+            z: position.z,
+          },
+          positionAccuracy: typeof positionAccuracy === 'number' ? positionAccuracy : undefined,
+          heading: typeof heading === 'number' ? heading : undefined,
+          speed: typeof speed === 'number' ? speed : undefined,
+          strength: strength ?? undefined,
+          confidence: typeof confidence === 'number' ? Math.max(0, Math.min(1, confidence)) : undefined,
+          notes: typeof notes === 'string' ? notes : undefined,
+        };
+
+        // Process report (handles duplicates via merging)
+        const report = intelManager.processReport(reportParams);
+
+        if (!report) {
+          return res.status(400).json({
+            error: 'Failed to create report',
+            message: 'Invalid report data or position',
+          });
+        }
+
+        logger.info('Intel report created', {
+          side: validSide,
+          id: report.id,
+          source: report.source,
+          targetType: report.targetType,
+        });
+
+        res.status(201).json({
+          created: true,
+          report,
+        });
+      } catch (error) {
+        logger.error('Error creating intel report', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Delete intel report
+    this.app.delete('/api/intel/:id', (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { side } = req.query;
+
+        if (!id) {
+          return res.status(400).json({
+            error: 'Missing required parameter',
+            message: 'Report ID is required',
+          });
+        }
+
+        // If side is provided, only check that manager
+        // Otherwise, try both managers
+        let deleted = false;
+        let deletedFrom: CommanderSide | null = null;
+
+        if (side) {
+          const validSide = this.validateSide(side as string);
+          if (!validSide) {
+            return res.status(400).json({
+              error: 'Invalid side parameter',
+              message: 'Side must be EAST or WEST',
+            });
+          }
+
+          const intelManager = this.getIntelManager(validSide);
+          if (intelManager && intelManager.removeReport(id)) {
+            deleted = true;
+            deletedFrom = validSide;
+          }
+        } else {
+          // Try both managers
+          if (this.eastIntelManager.removeReport(id)) {
+            deleted = true;
+            deletedFrom = 'EAST';
+          } else if (this.westIntelManager.removeReport(id)) {
+            deleted = true;
+            deletedFrom = 'WEST';
+          }
+        }
+
+        if (!deleted) {
+          return res.status(404).json({
+            error: 'Report not found',
+            message: `No report found with ID: ${id}`,
+          });
+        }
+
+        logger.info('Intel report deleted', { id, side: deletedFrom });
+
+        res.json({
+          deleted: true,
+          id,
+          side: deletedFrom,
+        });
+      } catch (error) {
+        logger.error('Error deleting intel report', { error });
         res.status(500).json({ error: 'Internal server error' });
       }
     });
