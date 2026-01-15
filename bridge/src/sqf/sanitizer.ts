@@ -84,12 +84,13 @@ export class SQFSanitizer {
    */
   wrapInSafeContext(sqf: string): string {
     // Wrap in try-catch equivalent for SQF
+    // Note: Use single quotes to match quote conversion pipeline
     return `
 // LLM-Generated Code - Auto-wrapped for safety
 try {
 ${sqf}
 } catch {
-  diag_log format ["[LLMGM] Error executing generated SQF: %1", _exception];
+  diag_log format ['[LLMGM] Error executing generated SQF: %1', _exception];
 };
 `.trim();
   }

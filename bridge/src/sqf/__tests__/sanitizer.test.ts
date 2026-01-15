@@ -214,6 +214,31 @@ describe('SQFSanitizer', () => {
       // Should be wrapped
       expect(result).toContain('try {');
     });
+
+    it('should produce output with NO double quotes in SQF strings', () => {
+      // This is the critical verification for Pythia transport compatibility
+      const input = '_group setBehaviour "AWARE"; format ["%1 spawned", _unit];';
+      const result = sanitizer.sanitize(input);
+
+      // Count double-quoted strings (excluding comments which start with //)
+      const sqfLines = result.split('\n').filter(line => !line.trim().startsWith('//'));
+      const sqfCode = sqfLines.join('\n');
+      const doubleQuotes = (sqfCode.match(/"[^"]*"/g) || []).length;
+
+      expect(doubleQuotes).toBe(0);
+      expect(result).toContain("'AWARE'");
+      expect(result).toContain("'%1 spawned'");
+    });
+
+    it('should ensure wrapInSafeContext uses single quotes', () => {
+      const input = 'hint "test";';
+      const result = sanitizer.sanitize(input);
+
+      // The diag_log in catch block should use single quotes
+      expect(result).toContain("diag_log format ['[LLMGM]");
+      // Verify no double quotes in the format string
+      expect(result).not.toMatch(/diag_log format \[".*?"\]/);
+    });
   });
 
   describe('addMetadata', () => {
