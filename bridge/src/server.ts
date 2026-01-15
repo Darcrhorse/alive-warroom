@@ -161,6 +161,42 @@ export class BridgeServer {
         res.status(500).json({ error: 'Internal server error' });
       }
     });
+
+    // Create a new objective
+    this.app.post('/api/objectives/create', (req: Request, res: Response) => {
+      try {
+        const params = req.body;
+
+        // Validate required fields
+        if (!params.type) {
+          return res.status(400).json({ error: 'Missing required field: type' });
+        }
+
+        const validTypes = ['capture', 'defend', 'destroy', 'patrol', 'hvt'];
+        if (!validTypes.includes(params.type)) {
+          return res.status(400).json({ error: `Invalid objective type: ${params.type}` });
+        }
+
+        if (!params.position || typeof params.position.x !== 'number' ||
+            typeof params.position.y !== 'number' || typeof params.position.z !== 'number') {
+          return res.status(400).json({ error: 'Missing or invalid required field: position (requires x, y, z)' });
+        }
+
+        // Create the objective
+        const objective = objectiveManager.create(params);
+
+        logger.info('Objective created via API', {
+          id: objective.id,
+          type: objective.type,
+          owner: objective.owner
+        });
+
+        res.json({ created: true, objective });
+      } catch (error) {
+        logger.error('Error creating objective', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
   }
 
   private async processGameState(gameState: GameState): Promise<void> {
