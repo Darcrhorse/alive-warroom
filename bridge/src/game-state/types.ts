@@ -112,6 +112,31 @@ export interface DifficultyParams {
   aggressiveness: number; // 0-1
 }
 
+/**
+ * Represents the available and maximum counts for a unit pool category
+ */
+export interface UnitPoolCategory {
+  available: number;
+  max: number;
+}
+
+/**
+ * Faction-specific limits on unit types
+ * Pools deplete as units spawn and track available vs max counts
+ */
+export interface UnitPool {
+  infantry: UnitPoolCategory;
+  lightVehicle: UnitPoolCategory;
+  heavyArmor: UnitPoolCategory;
+  helicopter: UnitPoolCategory;
+  fixedWing: UnitPoolCategory;
+}
+
+/**
+ * Unit pool type keys for validation and lookup
+ */
+export type UnitPoolType = keyof UnitPool;
+
 export interface PlayerStats {
   averageHealth: number;
   killCount: number;
