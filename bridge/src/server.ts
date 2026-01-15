@@ -19,7 +19,11 @@ import {
   EastCommander,
   WestCommander,
   createEastCommander,
-  createWestCommander
+  createWestCommander,
+  ChatInterface,
+  createChatInterface,
+  ChatContext,
+  ChatResponse
 } from './commander';
 
 export class BridgeServer {
@@ -36,6 +40,7 @@ export class BridgeServer {
   private commanderMode: CommanderMode | null = null;
   private commanderMap: string | null = null;
   private playerSide: 'WEST' | 'EAST' | 'INDEPENDENT' | null = null;
+  private chatInterface: ChatInterface | null = null;
 
   constructor() {
     this.app = express();
@@ -203,7 +208,7 @@ export class BridgeServer {
           });
         }
 
-        // Dispose existing commanders if any
+        // Dispose existing commanders and chat interface if any
         if (this.eastCommander) {
           this.eastCommander.dispose();
           this.eastCommander = null;
@@ -211,6 +216,10 @@ export class BridgeServer {
         if (this.westCommander) {
           this.westCommander.dispose();
           this.westCommander = null;
+        }
+        if (this.chatInterface) {
+          this.chatInterface.clearHistory();
+          this.chatInterface = null;
         }
 
         // Store commander settings
@@ -245,9 +254,17 @@ export class BridgeServer {
             if (playerSide === 'WEST') {
               this.westCommander = createWestCommander(mode, difficultyNum);
               this.westCommander.activate();
+              // Create chat interface for WEST commander
+              this.chatInterface = createChatInterface('WEST', {
+                commanderCallsign: 'Overlord'
+              });
             } else if (playerSide === 'EAST') {
               this.eastCommander = createEastCommander(mode, difficultyNum);
               this.eastCommander.activate();
+              // Create chat interface for EAST commander
+              this.chatInterface = createChatInterface('EAST', {
+                commanderCallsign: 'Warlord'
+              });
             }
             break;
         }
@@ -356,6 +373,124 @@ export class BridgeServer {
         });
       } catch (error) {
         logger.error('Error processing commander update', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Interactive commander chat endpoint
+    this.app.post('/api/commander/chat', async (req: Request, res: Response) => {
+      try {
+        const { message, playerName, playerPosition } = req.body;
+
+        // Validate required fields
+        if (!message || !playerName || !playerPosition) {
+          return res.status(400).json({
+            error: 'Missing required fields',
+            required: ['message', 'playerName', 'playerPosition']
+          });
+        }
+
+        // Validate playerPosition structure
+        if (
+          typeof playerPosition.x !== 'number' ||
+          typeof playerPosition.y !== 'number'
+        ) {
+          return res.status(400).json({
+            error: 'Invalid playerPosition',
+            message: 'playerPosition must have numeric x and y properties'
+          });
+        }
+
+        // Check if commander system is initialized
+        if (!this.commanderMode) {
+          return res.status(400).json({
+            error: 'Commander system not initialized',
+            message: 'Call /api/commander/init first'
+          });
+        }
+
+        // Check if in interactive mode
+        if (this.commanderMode !== 'interactive') {
+          return res.status(400).json({
+            error: 'Chat only available in interactive mode',
+            currentMode: this.commanderMode,
+            message: 'Initialize commander with mode="interactive" to use chat'
+          });
+        }
+
+        // Check if chat interface is available
+        if (!this.chatInterface) {
+          return res.status(500).json({
+            error: 'Chat interface not initialized',
+            message: 'Internal configuration error'
+          });
+        }
+
+        // Get current game state for context
+        const currentState = gameStateManager.getState();
+
+        // Get commander state for threat assessment and intel
+        const activeCommander = this.playerSide === 'WEST'
+          ? this.westCommander
+          : this.eastCommander;
+
+        const commanderState = activeCommander?.getState();
+
+        // Build chat context
+        const chatContext: ChatContext = {
+          playerName,
+          playerPosition: {
+            x: playerPosition.x,
+            y: playerPosition.y,
+            z: playerPosition.z ?? 0
+          },
+          message,
+          gameState: currentState ?? undefined,
+          threatAssessment: commanderState?.threatAssessment,
+          knownEnemyPositions: commanderState?.knownEnemyPositions
+        };
+
+        // Process the chat message
+        const chatResponse: ChatResponse = await this.chatInterface.processMessage(chatContext);
+
+        logger.info('Commander chat processed', {
+          playerName,
+          requestType: chatResponse.requestType,
+          success: chatResponse.success,
+          hasAction: chatResponse.action !== null
+        });
+
+        // Queue action if one was generated
+        if (chatResponse.success && chatResponse.action && chatResponse.sqfCode) {
+          this.actionQueue.push({
+            sqf: chatResponse.sqfCode,
+            metadata: {
+              source: 'commander_chat',
+              action: chatResponse.action.action,
+              reasoning: chatResponse.reasoning,
+              playerName,
+              timestamp: Date.now()
+            }
+          });
+
+          this.lastActionTime = Date.now();
+          logger.info('Chat action queued', {
+            action: chatResponse.action.action,
+            queueLength: this.actionQueue.length
+          });
+        }
+
+        // Build response matching spec
+        res.json({
+          response: chatResponse.message,
+          actions: chatResponse.action ? [chatResponse.action] : [],
+          reasoning: chatResponse.reasoning,
+          success: chatResponse.success,
+          requestType: chatResponse.requestType,
+          estimatedTime: chatResponse.estimatedTime
+        });
+      } catch (error) {
+        logger.error('Error processing commander chat', { error });
         res.status(500).json({ error: 'Internal server error' });
       }
     });
