@@ -58,11 +58,12 @@ const FORBIDDEN_PATTERNS = [
  * Suspicious patterns that should generate warnings
  */
 const SUSPICIOUS_PATTERNS = [
-  /setDamage/i,
-  /deleteVehicle/i,
-  /setPos/i,
-  /spawn\s*\{.*while.*\}/i, // Spawned loops
-  /for\s*".*"\s*from.*to.*step.*do/i, // Large loops
+  { pattern: /setDamage/i, message: 'Suspicious pattern detected: setDamage' },
+  { pattern: /deleteVehicle/i, message: 'Suspicious pattern detected: deleteVehicle' },
+  { pattern: /setPos/i, message: 'Suspicious pattern detected: setPos' },
+  { pattern: /spawn\s*\{.*while.*\}/i, message: 'Suspicious pattern detected: spawned loops' },
+  { pattern: /for\s*".*"\s*from.*to.*step.*do/i, message: 'Suspicious pattern detected: large loops' },
+  { pattern: /"[^"]*"/, message: 'Double quotes detected - SQF uses single quotes for strings' },
 ];
 
 /**
@@ -115,15 +116,10 @@ export class SQFValidator {
       warnings.push(`Nesting depth (${nestingDepth}) exceeds recommended maximum of ${MAX_NESTING_DEPTH}`);
     }
 
-    // Check for double quotes - SQF uses single quotes for strings
-    if (/"[^"]*"/.test(sqf)) {
-      warnings.push('Double quotes detected - SQF uses single quotes for strings');
-    }
-
     // Check for suspicious patterns
-    for (const pattern of SUSPICIOUS_PATTERNS) {
+    for (const { pattern, message } of SUSPICIOUS_PATTERNS) {
       if (pattern.test(sqf)) {
-        warnings.push(`Suspicious pattern detected: ${pattern.source}`);
+        warnings.push(message);
       }
     }
 
