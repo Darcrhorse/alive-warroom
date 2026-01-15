@@ -498,64 +498,90 @@ export class BridgeServer {
     // Get current battlefield situation report
     this.app.get('/api/commander/sitrep', (req: Request, res: Response) => {
       try {
-        // Check if commander system is initialized
-        if (!this.commanderMode) {
-          return res.status(400).json({
-            error: 'Commander system not initialized',
-            message: 'Call /api/commander/init first'
-          });
-        }
+        // Get commander states (null if not initialized)
+        const eastState = this.eastCommander?.getState() ?? null;
+        const westState = this.westCommander?.getState() ?? null;
 
-        // Get current game state
+        // Get current game state for battlefield assessment
         const currentState = gameStateManager.getState();
 
-        // Gather commander states
-        const eastState = this.eastCommander?.getState();
-        const westState = this.westCommander?.getState();
+        // Determine battle status based on current state
+        let battleStatus = 'not_initialized';
+        const recommendedActions: string[] = [];
 
-        // Build situation report
-        const sitrep = {
-          timestamp: Date.now(),
-          mode: this.commanderMode,
-          map: this.commanderMap,
-          playerSide: this.playerSide,
-          commanders: {
-            east: eastState ? {
-              side: 'EAST',
-              isActive: eastState.isActive,
-              currentPhase: eastState.currentPhase,
-              threatAssessment: eastState.threatAssessment,
-              knownEnemyPositions: eastState.knownEnemyPositions,
-              lastDecisionTime: eastState.lastDecisionTime
-            } : null,
-            west: westState ? {
-              side: 'WEST',
-              isActive: westState.isActive,
-              currentPhase: westState.currentPhase,
-              threatAssessment: westState.threatAssessment,
-              knownEnemyPositions: westState.knownEnemyPositions,
-              lastDecisionTime: westState.lastDecisionTime
-            } : null
-          },
-          battlefield: currentState ? {
-            playerCount: currentState.players?.length ?? 0,
-            enemyCount: currentState.enemyUnits?.length ?? 0,
-            friendlyCount: currentState.friendlyUnits?.length ?? 0,
-            gameTime: currentState.timestamp
-          } : null,
-          actionQueue: {
-            length: this.actionQueue.length,
-            lastActionTime: this.lastActionTime
+        if (this.commanderMode) {
+          if (!eastState && !westState) {
+            battleStatus = 'no_commanders_active';
+          } else if (eastState && westState) {
+            // Both commanders present - evaluate battle state
+            const eastActive = eastState.isActive;
+            const westActive = westState.isActive;
+
+            if (eastActive && westActive) {
+              battleStatus = 'battle_in_progress';
+
+              // Evaluate relative strengths for recommendations
+              const eastDeployed = eastState.deployedGroups?.length ?? 0;
+              const westDeployed = westState.deployedGroups?.length ?? 0;
+
+              if (eastDeployed > westDeployed * 1.5) {
+                recommendedActions.push('WEST: Consider reinforcements - EAST has numerical advantage');
+              } else if (westDeployed > eastDeployed * 1.5) {
+                recommendedActions.push('EAST: Consider reinforcements - WEST has numerical advantage');
+              }
+
+              // Check resource status
+              if (eastState.reinforcementTickets !== undefined && eastState.reinforcementTickets <= 5) {
+                recommendedActions.push('EAST: Low reinforcement tickets - conserve forces');
+              }
+              if (westState.reinforcementTickets !== undefined && westState.reinforcementTickets <= 5) {
+                recommendedActions.push('WEST: Low reinforcement tickets - conserve forces');
+              }
+            } else {
+              battleStatus = eastActive ? 'east_active_only' : 'west_active_only';
+            }
+          } else if (eastState) {
+            battleStatus = eastState.isActive ? 'east_commander_active' : 'east_commander_paused';
+            if (eastState.reinforcementTickets !== undefined && eastState.reinforcementTickets <= 5) {
+              recommendedActions.push('EAST: Low reinforcement tickets - conserve forces');
+            }
+          } else if (westState) {
+            battleStatus = westState.isActive ? 'west_commander_active' : 'west_commander_paused';
+            if (westState.reinforcementTickets !== undefined && westState.reinforcementTickets <= 5) {
+              recommendedActions.push('WEST: Low reinforcement tickets - conserve forces');
+            }
           }
-        };
+
+          // Add mode-specific recommendations
+          if (this.commanderMode === 'interactive' && this.chatInterface) {
+            recommendedActions.push('Interactive mode active - use /api/commander/chat for commands');
+          }
+
+          // Add battlefield context recommendations
+          if (currentState) {
+            const enemyCount = currentState.enemyUnits?.length ?? 0;
+            const friendlyCount = currentState.friendlyUnits?.length ?? 0;
+
+            if (enemyCount > friendlyCount * 2) {
+              recommendedActions.push('High enemy presence detected - consider defensive posture');
+            }
+          }
+        }
 
         logger.info('Sitrep requested', {
           mode: this.commanderMode,
+          battleStatus,
           eastActive: eastState?.isActive ?? false,
           westActive: westState?.isActive ?? false
         });
 
-        res.json(sitrep);
+        // Response matches spec: eastState, westState, battleStatus, recommendedActions
+        res.json({
+          eastState,
+          westState,
+          battleStatus,
+          recommendedActions
+        });
       } catch (error) {
         logger.error('Error getting sitrep', { error });
         res.status(500).json({ error: 'Internal server error' });
