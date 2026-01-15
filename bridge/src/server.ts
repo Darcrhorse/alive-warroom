@@ -18,9 +18,13 @@ import {
   IntelManager,
   createIntelManager,
   IntelSource,
+  IntelLevel,
   TargetType,
   CommanderSide,
+  FogOfWarMode,
   CreateIntelReportParams,
+  CommanderIntel,
+  IntelReport,
 } from './commander/intel';
 
 export class BridgeServer {
@@ -121,6 +125,120 @@ export class BridgeServer {
       return targetType as TargetType;
     }
     return null;
+  }
+
+  /**
+   * Gets the complete intel picture for a commander side
+   * @param side Commander side (EAST or WEST)
+   * @param fogMode Fog of war mode to apply
+   * @returns CommanderIntel object with filtered/processed intel
+   */
+  getIntelPicture(side: CommanderSide, fogMode: FogOfWarMode = FogOfWarMode.FULL): CommanderIntel {
+    const intelManager = this.getIntelManager(side);
+    if (!intelManager) {
+      return {
+        side,
+        knownEnemies: [],
+        lastContactAreas: [],
+        suspectedPositions: [],
+        confirmedTargets: [],
+        fogOfWarMode: fogMode,
+        lastUpdateTime: Date.now(),
+      };
+    }
+
+    const allReports = intelManager.getAllReports();
+
+    // Filter reports based on fog of war mode
+    let filteredReports: IntelReport[];
+    switch (fogMode) {
+      case FogOfWarMode.NONE:
+        // Debug mode - show all intel without restrictions
+        filteredReports = allReports;
+        break;
+      case FogOfWarMode.PARTIAL:
+        // Show active and confirmed, hide very stale reports
+        filteredReports = allReports.filter(
+          r => r.level !== IntelLevel.NO_INTEL && r.confidence >= 0.2
+        );
+        break;
+      case FogOfWarMode.FULL:
+      default:
+        // Realistic - only show reports with reasonable confidence
+        filteredReports = allReports.filter(
+          r => r.level !== IntelLevel.NO_INTEL && r.confidence >= 0.3
+        );
+        break;
+    }
+
+    // Categorize reports
+    const confirmedTargets = filteredReports.filter(r => r.level === IntelLevel.CONFIRMED);
+    const activeReports = filteredReports.filter(r => r.level === IntelLevel.ACTIVE);
+    const suspectedPositions = filteredReports.filter(
+      r => r.level === IntelLevel.STALE || r.confidence < 0.5
+    );
+
+    return {
+      side,
+      knownEnemies: filteredReports,
+      lastContactAreas: [], // Contact areas computed separately if needed
+      suspectedPositions,
+      confirmedTargets,
+      fogOfWarMode: fogMode,
+      lastUpdateTime: Date.now(),
+    };
+  }
+
+  /**
+   * Applies fog of war to a position based on intel accuracy
+   * Returns a fuzzed position with uncertainty based on report accuracy
+   * @param position Original position
+   * @param accuracy Position accuracy in meters (higher = less accurate)
+   * @returns Fuzzed position with uncertainty applied
+   */
+  applyPositionFuzzing(
+    position: { x: number; y: number; z: number },
+    accuracy: number
+  ): { x: number; y: number; z: number } {
+    if (accuracy <= 0) {
+      return { ...position };
+    }
+
+    // Apply random offset within accuracy radius
+    const angle = Math.random() * 2 * Math.PI;
+    const distance = Math.random() * accuracy;
+
+    return {
+      x: position.x + Math.cos(angle) * distance,
+      y: position.y + Math.sin(angle) * distance,
+      z: position.z,
+    };
+  }
+
+  /**
+   * Gets enemy positions filtered by fog of war for a commander side
+   * This integrates intel with game state for decision making
+   * @param side Commander side requesting intel
+   * @param fogMode Fog of war mode to apply
+   * @returns Array of positions with uncertainty applied based on intel quality
+   */
+  getFilteredEnemyPositions(
+    side: CommanderSide,
+    fogMode: FogOfWarMode = FogOfWarMode.FULL
+  ): Array<{ position: { x: number; y: number; z: number }; confidence: number; level: IntelLevel }> {
+    const intel = this.getIntelPicture(side, fogMode);
+
+    return intel.knownEnemies.map(report => {
+      // Apply position fuzzing based on accuracy and confidence
+      const effectiveAccuracy = report.positionAccuracy * (2 - report.confidence);
+      const fuzzedPosition = this.applyPositionFuzzing(report.position, effectiveAccuracy);
+
+      return {
+        position: fuzzedPosition,
+        confidence: report.confidence,
+        level: report.level,
+      };
+    });
   }
 
   private setupRoutes(): void {
@@ -426,6 +544,59 @@ export class BridgeServer {
         res.status(500).json({ error: 'Internal server error' });
       }
     });
+
+    // Get fog of war filtered intel picture for a side
+    this.app.get('/api/intel/:side/picture', (req: Request, res: Response) => {
+      try {
+        const { side } = req.params;
+        const { fogMode } = req.query;
+
+        const validSide = this.validateSide(side);
+        if (!validSide) {
+          return res.status(400).json({
+            error: 'Invalid side parameter',
+            message: 'Side must be EAST or WEST',
+          });
+        }
+
+        // Validate fog mode if provided
+        let validFogMode: FogOfWarMode = FogOfWarMode.FULL;
+        if (fogMode) {
+          const modeStr = (fogMode as string).toLowerCase();
+          if (modeStr === 'full') {
+            validFogMode = FogOfWarMode.FULL;
+          } else if (modeStr === 'partial') {
+            validFogMode = FogOfWarMode.PARTIAL;
+          } else if (modeStr === 'none') {
+            validFogMode = FogOfWarMode.NONE;
+          } else {
+            return res.status(400).json({
+              error: 'Invalid fogMode parameter',
+              message: 'fogMode must be one of: full, partial, none',
+            });
+          }
+        }
+
+        const intelPicture = this.getIntelPicture(validSide, validFogMode);
+        const filteredPositions = this.getFilteredEnemyPositions(validSide, validFogMode);
+
+        logger.info('Intel picture retrieved', {
+          side: validSide,
+          fogMode: validFogMode,
+          knownEnemies: intelPicture.knownEnemies.length,
+          confirmedTargets: intelPicture.confirmedTargets.length,
+        });
+
+        res.json({
+          ...intelPicture,
+          filteredPositions,
+          statistics: this.getIntelManager(validSide)?.getStatistics() ?? null,
+        });
+      } catch (error) {
+        logger.error('Error getting intel picture', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
   }
 
   private async processGameState(gameState: GameState): Promise<void> {
@@ -550,8 +721,13 @@ export class BridgeServer {
     const serverPort = port || config.port;
     const serverHost = host || config.host;
 
+    // Start intel decay intervals for both sides
+    this.eastIntelManager.startDecay();
+    this.westIntelManager.startDecay();
+    logger.info('Intel decay intervals started');
+
     this.httpServer = this.app.listen(serverPort, serverHost, () => {
-      logger.info(`Bridge server started`, { 
+      logger.info(`Bridge server started`, {
         port: serverPort,
         host: serverHost,
         llm: this.llmClient ? 'enabled' : 'disabled'
@@ -565,6 +741,11 @@ export class BridgeServer {
   }
 
   stop(): void {
+    // Stop intel decay intervals and clean up resources
+    this.eastIntelManager.dispose();
+    this.westIntelManager.dispose();
+    logger.info('Intel managers disposed');
+
     if (this.wss) {
       this.wss.close();
     }
