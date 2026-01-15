@@ -494,6 +494,73 @@ export class BridgeServer {
         res.status(500).json({ error: 'Internal server error' });
       }
     });
+
+    // Get current battlefield situation report
+    this.app.get('/api/commander/sitrep', (req: Request, res: Response) => {
+      try {
+        // Check if commander system is initialized
+        if (!this.commanderMode) {
+          return res.status(400).json({
+            error: 'Commander system not initialized',
+            message: 'Call /api/commander/init first'
+          });
+        }
+
+        // Get current game state
+        const currentState = gameStateManager.getState();
+
+        // Gather commander states
+        const eastState = this.eastCommander?.getState();
+        const westState = this.westCommander?.getState();
+
+        // Build situation report
+        const sitrep = {
+          timestamp: Date.now(),
+          mode: this.commanderMode,
+          map: this.commanderMap,
+          playerSide: this.playerSide,
+          commanders: {
+            east: eastState ? {
+              side: 'EAST',
+              isActive: eastState.isActive,
+              currentPhase: eastState.currentPhase,
+              threatAssessment: eastState.threatAssessment,
+              knownEnemyPositions: eastState.knownEnemyPositions,
+              lastDecisionTime: eastState.lastDecisionTime
+            } : null,
+            west: westState ? {
+              side: 'WEST',
+              isActive: westState.isActive,
+              currentPhase: westState.currentPhase,
+              threatAssessment: westState.threatAssessment,
+              knownEnemyPositions: westState.knownEnemyPositions,
+              lastDecisionTime: westState.lastDecisionTime
+            } : null
+          },
+          battlefield: currentState ? {
+            playerCount: currentState.players?.length ?? 0,
+            enemyCount: currentState.enemyUnits?.length ?? 0,
+            friendlyCount: currentState.friendlyUnits?.length ?? 0,
+            gameTime: currentState.timestamp
+          } : null,
+          actionQueue: {
+            length: this.actionQueue.length,
+            lastActionTime: this.lastActionTime
+          }
+        };
+
+        logger.info('Sitrep requested', {
+          mode: this.commanderMode,
+          eastActive: eastState?.isActive ?? false,
+          westActive: westState?.isActive ?? false
+        });
+
+        res.json(sitrep);
+      } catch (error) {
+        logger.error('Error getting sitrep', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
   }
 
   private async processGameState(gameState: GameState): Promise<void> {
