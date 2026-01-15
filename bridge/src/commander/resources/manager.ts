@@ -430,8 +430,18 @@ export class ResourceManager {
 
   /**
    * Deduct from a unit pool
+   * @param side - Side to deduct from
+   * @param poolType - Unit pool category
+   * @param count - Number of units to deduct (must be positive)
+   * @returns true if deduction succeeded, false if insufficient units or invalid count
    */
   deductFromPool(side: 'EAST' | 'WEST', poolType: UnitPoolType, count: number = 1): boolean {
+    // Validate count parameter
+    if (count <= 0) {
+      logger.warn(`Invalid deduct count for ${side}`, { poolType, count });
+      return false;
+    }
+
     const pool = this.resources[side].unitPool[poolType];
 
     if (pool.available < count) {
@@ -458,25 +468,43 @@ export class ResourceManager {
 
   /**
    * Restore units to a pool (e.g., unit destroyed, RTB)
+   * @param side - Side to restore to
+   * @param poolType - Unit pool category
+   * @param count - Number of units to restore (must be positive)
+   * @returns true if restoration occurred, false if invalid count
    */
-  restoreToPool(side: 'EAST' | 'WEST', poolType: UnitPoolType, count: number = 1): void {
+  restoreToPool(side: 'EAST' | 'WEST', poolType: UnitPoolType, count: number = 1): boolean {
+    // Validate count parameter
+    if (count <= 0) {
+      logger.warn(`Invalid restore count for ${side}`, { poolType, count });
+      return false;
+    }
+
     const pool = this.resources[side].unitPool[poolType];
     const previousValue = pool.available;
 
     // Cap at max
     pool.available = Math.min(pool.max, pool.available + count);
 
-    this.logTransaction({
-      timestamp: Date.now(),
-      side,
-      type: 'pool_restore',
-      amount: count,
-      description: `Restored ${count} to ${poolType} pool`,
-      previousValue,
-      newValue: pool.available,
-    });
+    // Only log if value actually changed
+    const actualRestored = pool.available - previousValue;
+    if (actualRestored > 0) {
+      this.logTransaction({
+        timestamp: Date.now(),
+        side,
+        type: 'pool_restore',
+        amount: actualRestored,
+        description: `Restored ${actualRestored} to ${poolType} pool`,
+        previousValue,
+        newValue: pool.available,
+      });
 
-    logger.debug(`Pool restored for ${side}`, { poolType, count, newAvailable: pool.available });
+      logger.debug(`Pool restored for ${side}`, { poolType, count: actualRestored, newAvailable: pool.available });
+    } else {
+      logger.debug(`Pool already at max for ${side}`, { poolType, max: pool.max });
+    }
+
+    return true;
   }
 
   /**
@@ -513,33 +541,65 @@ export class ResourceManager {
   }
 
   /**
+   * Check if a pool is critically low (below threshold percentage)
+   * @param side - Side to check
+   * @param poolType - Unit pool category
+   * @param threshold - Percentage threshold (0.0 - 1.0, default 0.2 = 20%)
+   * @returns true if pool is below threshold
+   */
+  isPoolCriticallyLow(side: 'EAST' | 'WEST', poolType: UnitPoolType, threshold: number = 0.2): boolean {
+    return this.getPoolRemainingPercent(side, poolType) < threshold;
+  }
+
+  /**
+   * Get all critically low pools for a side
+   * @param side - Side to check
+   * @param threshold - Percentage threshold (0.0 - 1.0, default 0.2 = 20%)
+   * @returns Array of pool types that are below threshold
+   */
+  getCriticallyLowPools(side: 'EAST' | 'WEST', threshold: number = 0.2): UnitPoolType[] {
+    const poolTypes: UnitPoolType[] = ['infantry', 'lightVehicle', 'heavyArmor', 'helicopter', 'fixedWing'];
+    return poolTypes.filter(poolType => this.isPoolCriticallyLow(side, poolType, threshold));
+  }
+
+  /**
    * Get comprehensive status of all pools for a side
    */
-  getPoolStatus(side: 'EAST' | 'WEST'): Record<UnitPoolType, { available: number; max: number; utilized: number; exhausted: boolean }> {
+  getPoolStatus(side: 'EAST' | 'WEST'): Record<UnitPoolType, { available: number; max: number; deployed: number; utilized: number; exhausted: boolean; criticallyLow: boolean }> {
     const poolTypes: UnitPoolType[] = ['infantry', 'lightVehicle', 'heavyArmor', 'helicopter', 'fixedWing'];
-    const status: Record<string, { available: number; max: number; utilized: number; exhausted: boolean }> = {};
+    const status: Record<string, { available: number; max: number; deployed: number; utilized: number; exhausted: boolean; criticallyLow: boolean }> = {};
 
     for (const poolType of poolTypes) {
       const pool = this.resources[side].unitPool[poolType];
       status[poolType] = {
         available: pool.available,
         max: pool.max,
+        deployed: pool.max - pool.available,
         utilized: this.getPoolUtilization(side, poolType),
         exhausted: pool.available === 0,
+        criticallyLow: this.isPoolCriticallyLow(side, poolType),
       };
     }
 
-    return status as Record<UnitPoolType, { available: number; max: number; utilized: number; exhausted: boolean }>;
+    return status as Record<UnitPoolType, { available: number; max: number; deployed: number; utilized: number; exhausted: boolean; criticallyLow: boolean }>;
   }
 
   /**
    * Get summary totals for all pools
    */
-  getPoolSummary(side: 'EAST' | 'WEST'): { totalAvailable: number; totalMax: number; totalUtilized: number; exhaustedPools: UnitPoolType[] } {
+  getPoolSummary(side: 'EAST' | 'WEST'): {
+    totalAvailable: number;
+    totalMax: number;
+    totalDeployed: number;
+    totalUtilized: number;
+    exhaustedPools: UnitPoolType[];
+    criticallyLowPools: UnitPoolType[];
+  } {
     const poolTypes: UnitPoolType[] = ['infantry', 'lightVehicle', 'heavyArmor', 'helicopter', 'fixedWing'];
     let totalAvailable = 0;
     let totalMax = 0;
     const exhaustedPools: UnitPoolType[] = [];
+    const criticallyLowPools: UnitPoolType[] = [];
 
     for (const poolType of poolTypes) {
       const pool = this.resources[side].unitPool[poolType];
@@ -548,13 +608,20 @@ export class ResourceManager {
       if (pool.available === 0) {
         exhaustedPools.push(poolType);
       }
+      if (this.isPoolCriticallyLow(side, poolType)) {
+        criticallyLowPools.push(poolType);
+      }
     }
+
+    const totalDeployed = totalMax - totalAvailable;
 
     return {
       totalAvailable,
       totalMax,
-      totalUtilized: totalMax > 0 ? (totalMax - totalAvailable) / totalMax : 0,
+      totalDeployed,
+      totalUtilized: totalMax > 0 ? totalDeployed / totalMax : 0,
       exhaustedPools,
+      criticallyLowPools,
     };
   }
 
