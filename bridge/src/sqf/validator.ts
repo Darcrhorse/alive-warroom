@@ -115,6 +115,11 @@ export class SQFValidator {
       warnings.push(`Nesting depth (${nestingDepth}) exceeds recommended maximum of ${MAX_NESTING_DEPTH}`);
     }
 
+    // Check for double quotes - SQF uses single quotes for strings
+    if (/"[^"]*"/.test(sqf)) {
+      warnings.push('Double quotes detected - SQF uses single quotes for strings');
+    }
+
     // Check for suspicious patterns
     for (const pattern of SUSPICIOUS_PATTERNS) {
       if (pattern.test(sqf)) {
