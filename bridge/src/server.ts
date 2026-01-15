@@ -137,8 +137,8 @@ export class BridgeServer {
     this.app.post('/api/objectives/status', (req: Request, res: Response) => {
       const { objectiveId, status, progress, data } = req.body;
       
-      // Validate required fields
-      if (!objectiveId || !status) {
+      // Validate required fields (using strict null/undefined checks to allow falsy values like empty strings)
+      if (objectiveId == null || status == null) {
         return res.status(400).json({
           error: 'Missing required fields',
           message: 'objectiveId and status are required'

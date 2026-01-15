@@ -8,7 +8,7 @@ import { configManager } from '../src/config/settings';
 // Response type interfaces
 interface ObjectiveStatusSuccessResponse {
   received: boolean;
-  objectiveId: string;
+  objectiveId: string | number;
   status: string;
   timestamp: number;
 }
@@ -202,5 +202,41 @@ describe('BridgeServer - /api/objectives/status', () => {
     expect(response.status).toBe(200);
     const result = await response.json() as ObjectiveStatusSuccessResponse;
     expect(result.received).toBe(true);
+  });
+
+  it('should accept empty string as objectiveId', async () => {
+    const response = await fetch(`${baseUrl}/api/objectives/status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        objectiveId: '',
+        status: 'ACTIVE'
+      })
+    });
+
+    expect(response.status).toBe(200);
+    const result = await response.json() as ObjectiveStatusSuccessResponse;
+    expect(result.received).toBe(true);
+    expect(result.objectiveId).toBe('');
+  });
+
+  it('should accept number 0 as objectiveId', async () => {
+    const response = await fetch(`${baseUrl}/api/objectives/status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        objectiveId: 0,
+        status: 'COMPLETE'
+      })
+    });
+
+    expect(response.status).toBe(200);
+    const result = await response.json() as ObjectiveStatusSuccessResponse;
+    expect(result.received).toBe(true);
+    expect(result.objectiveId).toBe(0);
   });
 });
