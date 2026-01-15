@@ -55,8 +55,8 @@ describe('Commander Integration Tests', () => {
   beforeAll(() => {
     // Create server instance for testing
     server = new BridgeServer();
-    // Access the internal express app for testing
-    app = (server as any).app;
+    // Access the express app via public getter for testing
+    app = server.expressApp;
   });
 
   afterAll(() => {
@@ -370,10 +370,9 @@ describe('Commander Integration Tests', () => {
       });
 
       it('should return 400 when commander not initialized', async () => {
-        // First, re-initialize to reset, then stop commanders
         // Create a fresh server instance for this test
         const freshServer = new BridgeServer();
-        const freshApp = (freshServer as any).app;
+        const freshApp = freshServer.expressApp;
 
         const response = await request(freshApp)
           .post('/api/commander/update')

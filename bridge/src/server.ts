@@ -34,6 +34,11 @@ export class BridgeServer {
   private actionQueue: Array<{ sqf: string; metadata: any }> = [];
   private lastActionTime: number = 0;
 
+  // Expose Express app for testing with supertest
+  public get expressApp(): express.Application {
+    return this.app;
+  }
+
   // Commander system
   private eastCommander: EastCommander | null = null;
   private westCommander: WestCommander | null = null;
