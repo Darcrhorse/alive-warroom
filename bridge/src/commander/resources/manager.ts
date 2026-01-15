@@ -699,6 +699,9 @@ export class ResourceManager {
 
   /**
    * Use a support asset
+   * @param side - Side using the asset
+   * @param assetType - Type of support asset to use
+   * @returns true if asset was used, false if exhausted or invalid
    */
   useSupportAsset(side: 'EAST' | 'WEST', assetType: SupportAssetType): boolean {
     const assets = this.resources[side].supportAssets;
@@ -727,9 +730,387 @@ export class ResourceManager {
 
   /**
    * Check if a support asset is available
+   * @param side - Side to check
+   * @param assetType - Type of support asset
+   * @param count - Number of assets needed (default 1)
+   * @returns true if the asset has sufficient count
    */
-  hasSupportAsset(side: 'EAST' | 'WEST', assetType: SupportAssetType): boolean {
-    return this.resources[side].supportAssets[assetType] > 0;
+  hasSupportAsset(side: 'EAST' | 'WEST', assetType: SupportAssetType, count: number = 1): boolean {
+    return this.resources[side].supportAssets[assetType] >= count;
+  }
+
+  /**
+   * Get count of a specific support asset type
+   * @param side - Side to check
+   * @param assetType - Type of support asset
+   * @returns Current count of the asset
+   */
+  getSupportAssetCount(side: 'EAST' | 'WEST', assetType: SupportAssetType): number {
+    return this.resources[side].supportAssets[assetType];
+  }
+
+  /**
+   * Check if a support asset is completely exhausted
+   * @param side - Side to check
+   * @param assetType - Type of support asset
+   * @returns true if asset count is 0
+   */
+  isSupportAssetExhausted(side: 'EAST' | 'WEST', assetType: SupportAssetType): boolean {
+    return this.resources[side].supportAssets[assetType] === 0;
+  }
+
+  /**
+   * Get all exhausted support asset types for a side
+   * @param side - Side to check
+   * @returns Array of exhausted support asset types
+   */
+  getExhaustedSupportAssets(side: 'EAST' | 'WEST'): SupportAssetType[] {
+    const assetTypes: SupportAssetType[] = ['artilleryStrikes', 'casSorties', 'resupplyDrops', 'medevacMissions'];
+    return assetTypes.filter(assetType => this.isSupportAssetExhausted(side, assetType));
+  }
+
+  /**
+   * Get comprehensive status of all support assets for a side
+   * @param side - Side to check
+   * @returns Object with status for each support asset type
+   */
+  getSupportAssetStatus(side: 'EAST' | 'WEST'): Record<SupportAssetType, { available: number; exhausted: boolean }> {
+    const assets = this.resources[side].supportAssets;
+    return {
+      artilleryStrikes: {
+        available: assets.artilleryStrikes,
+        exhausted: assets.artilleryStrikes === 0,
+      },
+      casSorties: {
+        available: assets.casSorties,
+        exhausted: assets.casSorties === 0,
+      },
+      resupplyDrops: {
+        available: assets.resupplyDrops,
+        exhausted: assets.resupplyDrops === 0,
+      },
+      medevacMissions: {
+        available: assets.medevacMissions,
+        exhausted: assets.medevacMissions === 0,
+      },
+    };
+  }
+
+  /**
+   * Get summary of all support assets for a side
+   * @param side - Side to check
+   * @returns Summary with totals and exhausted assets list
+   */
+  getSupportAssetSummary(side: 'EAST' | 'WEST'): {
+    totalAvailable: number;
+    exhaustedAssets: SupportAssetType[];
+    assetCounts: SupportAssets;
+  } {
+    const assets = this.resources[side].supportAssets;
+    const totalAvailable =
+      assets.artilleryStrikes +
+      assets.casSorties +
+      assets.resupplyDrops +
+      assets.medevacMissions;
+
+    return {
+      totalAvailable,
+      exhaustedAssets: this.getExhaustedSupportAssets(side),
+      assetCounts: { ...assets },
+    };
+  }
+
+  /**
+   * Add support assets (e.g., from objective capture or resupply)
+   * @param side - Side to add assets to
+   * @param assetType - Type of support asset
+   * @param count - Number of assets to add
+   */
+  addSupportAsset(side: 'EAST' | 'WEST', assetType: SupportAssetType, count: number = 1): void {
+    if (count <= 0) {
+      logger.warn(`Invalid support asset add count for ${side}`, { assetType, count });
+      return;
+    }
+
+    const assets = this.resources[side].supportAssets;
+    const previousValue = assets[assetType];
+    assets[assetType] += count;
+
+    this.logTransaction({
+      timestamp: Date.now(),
+      side,
+      type: 'support_use',
+      amount: -count, // Negative to indicate addition
+      description: `Added ${count} ${assetType}`,
+      previousValue,
+      newValue: assets[assetType],
+    });
+
+    logger.info(`Support asset added for ${side}`, { assetType, count, newTotal: assets[assetType] });
+  }
+
+  /**
+   * Set support asset count directly (for initialization or admin override)
+   * @param side - Side to modify
+   * @param assetType - Type of support asset
+   * @param count - New count value
+   */
+  setSupportAssetCount(side: 'EAST' | 'WEST', assetType: SupportAssetType, count: number): void {
+    const assets = this.resources[side].supportAssets;
+    const previousValue = assets[assetType];
+    assets[assetType] = Math.max(0, count);
+
+    logger.debug(`Support asset count set for ${side}`, { assetType, previousValue, newValue: assets[assetType] });
+  }
+
+  /**
+   * Reset all support assets to preset values based on difficulty
+   * @param side - Side to reset
+   * @param difficultyLevel - Optional difficulty level (uses default if not specified)
+   */
+  resetSupportAssets(side: 'EAST' | 'WEST', difficultyLevel?: number): void {
+    const level = difficultyLevel ?? getDefaultPreset().level;
+    const preset = getPresetByLevel(level);
+    const newAssets = getScaledSupportAssets(preset);
+
+    this.resources[side].supportAssets = newAssets;
+
+    logger.info(`Support assets reset for ${side}`, {
+      difficultyLevel: level,
+      artilleryStrikes: newAssets.artilleryStrikes,
+      casSorties: newAssets.casSorties,
+      resupplyDrops: newAssets.resupplyDrops,
+      medevacMissions: newAssets.medevacMissions,
+    });
+  }
+
+  // ==================== Specific Support Asset Operations ====================
+
+  /**
+   * Use an artillery strike
+   * @param side - Side using the strike
+   * @returns true if strike was available and used
+   */
+  useArtilleryStrike(side: 'EAST' | 'WEST'): boolean {
+    const result = this.useSupportAsset(side, 'artilleryStrikes');
+    if (result) {
+      logger.info(`Artillery strike called by ${side}`, {
+        remaining: this.resources[side].supportAssets.artilleryStrikes,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Check if artillery strike is available
+   * @param side - Side to check
+   * @returns true if at least one strike is available
+   */
+  hasArtilleryStrike(side: 'EAST' | 'WEST'): boolean {
+    return this.hasSupportAsset(side, 'artilleryStrikes');
+  }
+
+  /**
+   * Get remaining artillery strikes count
+   * @param side - Side to check
+   * @returns Number of available artillery strikes
+   */
+  getArtilleryStrikesRemaining(side: 'EAST' | 'WEST'): number {
+    return this.resources[side].supportAssets.artilleryStrikes;
+  }
+
+  /**
+   * Use a CAS (Close Air Support) sortie
+   * @param side - Side using the sortie
+   * @returns true if sortie was available and used
+   */
+  useCasSortie(side: 'EAST' | 'WEST'): boolean {
+    const result = this.useSupportAsset(side, 'casSorties');
+    if (result) {
+      logger.info(`CAS sortie launched by ${side}`, {
+        remaining: this.resources[side].supportAssets.casSorties,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Check if CAS sortie is available
+   * @param side - Side to check
+   * @returns true if at least one sortie is available
+   */
+  hasCasSortie(side: 'EAST' | 'WEST'): boolean {
+    return this.hasSupportAsset(side, 'casSorties');
+  }
+
+  /**
+   * Get remaining CAS sorties count
+   * @param side - Side to check
+   * @returns Number of available CAS sorties
+   */
+  getCasSortiesRemaining(side: 'EAST' | 'WEST'): number {
+    return this.resources[side].supportAssets.casSorties;
+  }
+
+  /**
+   * Use a resupply drop
+   * @param side - Side using the drop
+   * @returns true if resupply was available and used
+   */
+  useResupplyDrop(side: 'EAST' | 'WEST'): boolean {
+    const result = this.useSupportAsset(side, 'resupplyDrops');
+    if (result) {
+      logger.info(`Resupply drop requested by ${side}`, {
+        remaining: this.resources[side].supportAssets.resupplyDrops,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Check if resupply drop is available
+   * @param side - Side to check
+   * @returns true if at least one resupply is available
+   */
+  hasResupplyDrop(side: 'EAST' | 'WEST'): boolean {
+    return this.hasSupportAsset(side, 'resupplyDrops');
+  }
+
+  /**
+   * Get remaining resupply drops count
+   * @param side - Side to check
+   * @returns Number of available resupply drops
+   */
+  getResupplyDropsRemaining(side: 'EAST' | 'WEST'): number {
+    return this.resources[side].supportAssets.resupplyDrops;
+  }
+
+  /**
+   * Use a medevac mission with optional partial ticket refund
+   * Per spec: medevac provides partial ticket refund
+   * @param side - Side using the medevac
+   * @param ticketRefundPercent - Percentage of spawn cost to refund (0.0 - 1.0, default 0.5 = 50%)
+   * @param originalSpawnCost - Original ticket cost of the unit being evacuated
+   * @returns Object with success status and refund amount
+   */
+  useMedevacMission(
+    side: 'EAST' | 'WEST',
+    ticketRefundPercent: number = 0.5,
+    originalSpawnCost: number = 0
+  ): { success: boolean; refundAmount: number } {
+    const result = this.useSupportAsset(side, 'medevacMissions');
+
+    if (!result) {
+      return { success: false, refundAmount: 0 };
+    }
+
+    // Calculate and apply partial ticket refund
+    let refundAmount = 0;
+    if (originalSpawnCost > 0 && ticketRefundPercent > 0) {
+      refundAmount = Math.floor(originalSpawnCost * Math.min(1, ticketRefundPercent));
+      if (refundAmount > 0) {
+        this.refundTickets(side, refundAmount, `Medevac partial refund (${Math.round(ticketRefundPercent * 100)}%)`);
+      }
+    }
+
+    logger.info(`Medevac mission completed by ${side}`, {
+      remaining: this.resources[side].supportAssets.medevacMissions,
+      refundAmount,
+      originalSpawnCost,
+      refundPercent: ticketRefundPercent,
+    });
+
+    return { success: true, refundAmount };
+  }
+
+  /**
+   * Check if medevac mission is available
+   * @param side - Side to check
+   * @returns true if at least one medevac is available
+   */
+  hasMedevacMission(side: 'EAST' | 'WEST'): boolean {
+    return this.hasSupportAsset(side, 'medevacMissions');
+  }
+
+  /**
+   * Get remaining medevac missions count
+   * @param side - Side to check
+   * @returns Number of available medevac missions
+   */
+  getMedevacMissionsRemaining(side: 'EAST' | 'WEST'): number {
+    return this.resources[side].supportAssets.medevacMissions;
+  }
+
+  /**
+   * Request multiple support assets at once (for complex operations)
+   * This is an atomic operation - either all assets are used or none
+   * @param side - Side using the assets
+   * @param requests - Array of asset type and count pairs
+   * @returns true if all assets were available and used
+   */
+  useMultipleSupportAssets(
+    side: 'EAST' | 'WEST',
+    requests: Array<{ assetType: SupportAssetType; count: number }>
+  ): boolean {
+    // First check if all assets are available
+    for (const request of requests) {
+      if (!this.hasSupportAsset(side, request.assetType, request.count)) {
+        logger.warn(`Insufficient support assets for multi-asset request`, {
+          side,
+          assetType: request.assetType,
+          requested: request.count,
+          available: this.getSupportAssetCount(side, request.assetType),
+        });
+        return false;
+      }
+    }
+
+    // All assets available - deduct them all
+    for (const request of requests) {
+      for (let i = 0; i < request.count; i++) {
+        this.useSupportAsset(side, request.assetType);
+      }
+    }
+
+    logger.info(`Multiple support assets used by ${side}`, {
+      requests: requests.map((r) => ({ type: r.assetType, count: r.count })),
+    });
+
+    return true;
+  }
+
+  /**
+   * Get all available support asset types (those with count > 0)
+   * @param side - Side to check
+   * @returns Array of available support asset types
+   */
+  getAvailableSupportAssetTypes(side: 'EAST' | 'WEST'): SupportAssetType[] {
+    const assetTypes: SupportAssetType[] = ['artilleryStrikes', 'casSorties', 'resupplyDrops', 'medevacMissions'];
+    return assetTypes.filter(assetType => this.hasSupportAsset(side, assetType));
+  }
+
+  /**
+   * Check if any support assets are available
+   * @param side - Side to check
+   * @returns true if at least one support asset type has count > 0
+   */
+  hasAnySupportAsset(side: 'EAST' | 'WEST'): boolean {
+    const assets = this.resources[side].supportAssets;
+    return (
+      assets.artilleryStrikes > 0 ||
+      assets.casSorties > 0 ||
+      assets.resupplyDrops > 0 ||
+      assets.medevacMissions > 0
+    );
+  }
+
+  /**
+   * Check if all support assets are exhausted
+   * @param side - Side to check
+   * @returns true if all support asset types have count = 0
+   */
+  areAllSupportAssetsExhausted(side: 'EAST' | 'WEST'): boolean {
+    return !this.hasAnySupportAsset(side);
   }
 
   // ==================== Active Unit Tracking ====================
