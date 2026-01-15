@@ -197,6 +197,54 @@ export class BridgeServer {
         res.status(500).json({ error: 'Internal server error' });
       }
     });
+
+    // Assign units to an objective
+    this.app.post('/api/objectives/assign', (req: Request, res: Response) => {
+      try {
+        const { objectiveId, unitIds } = req.body;
+
+        // Validate required fields
+        if (!objectiveId || typeof objectiveId !== 'string') {
+          return res.status(400).json({ error: 'Missing or invalid required field: objectiveId' });
+        }
+
+        if (!unitIds || !Array.isArray(unitIds) || unitIds.length === 0) {
+          return res.status(400).json({ error: 'Missing or invalid required field: unitIds (must be a non-empty array)' });
+        }
+
+        // Validate all unitIds are strings
+        if (!unitIds.every((id: unknown) => typeof id === 'string')) {
+          return res.status(400).json({ error: 'Invalid unitIds: all elements must be strings' });
+        }
+
+        // Check if objective exists
+        const objective = objectiveManager.get(objectiveId);
+        if (!objective) {
+          return res.status(404).json({ error: `Objective not found: ${objectiveId}` });
+        }
+
+        // Assign units to the objective
+        const success = objectiveManager.assignUnits(objectiveId, unitIds);
+
+        if (!success) {
+          return res.status(500).json({ error: 'Failed to assign units to objective' });
+        }
+
+        // Get updated objective to return
+        const updatedObjective = objectiveManager.get(objectiveId);
+
+        logger.info('Units assigned to objective via API', {
+          objectiveId,
+          unitIds,
+          totalAssigned: updatedObjective?.assignedUnits.length
+        });
+
+        res.json({ assigned: true, objective: updatedObjective });
+      } catch (error) {
+        logger.error('Error assigning units to objective', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
   }
 
   private async processGameState(gameState: GameState): Promise<void> {
