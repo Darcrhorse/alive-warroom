@@ -14,6 +14,7 @@ import { sqfParser } from './sqf/parser';
 import { OpenAIClient } from './llm/openai';
 import { configManager } from './config/settings';
 import { logger } from './utils/logger';
+import { objectiveManager } from './commander/objectives';
 
 export class BridgeServer {
   private app: express.Application;
@@ -138,13 +139,25 @@ export class BridgeServer {
       try {
         configManager.updateConfig(req.body);
         logger.info('Configuration updated');
-        
+
         // Re-initialize LLM client if needed
         this.setupLLMClient();
-        
+
         res.json({ updated: true });
       } catch (error) {
         logger.error('Error updating config', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Get all objectives with status
+    this.app.get('/api/objectives', (req: Request, res: Response) => {
+      try {
+        const objectives = objectiveManager.getAll();
+        logger.debug('Objectives retrieved', { count: objectives.length });
+        res.json({ objectives });
+      } catch (error) {
+        logger.error('Error retrieving objectives', { error });
         res.status(500).json({ error: 'Internal server error' });
       }
     });
