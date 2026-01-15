@@ -12,6 +12,9 @@ import {
   IntelLevel,
   TargetType,
   StrengthEstimate,
+  IntelDecayConfig,
+  IntelStatistics,
+  DEFAULT_DECAY_CONFIG,
   MAX_REPORTS_PER_SIDE,
 } from './types';
 
@@ -23,14 +26,20 @@ export class IntelManager {
   private reports: Map<string, IntelReport> = new Map();
   private reportCounter: number = 0;
   private side: CommanderSide;
+  private decayConfig: IntelDecayConfig;
+  private decayIntervalId: ReturnType<typeof setInterval> | null = null;
+  private lastDecayTime: number = 0;
 
   /**
    * Creates a new IntelManager for a specific side
    * @param side Commander side (EAST or WEST)
+   * @param decayConfig Optional decay configuration (uses defaults if not provided)
    */
-  constructor(side: CommanderSide) {
+  constructor(side: CommanderSide, decayConfig?: Partial<IntelDecayConfig>) {
     this.side = side;
-    logger.info('IntelManager initialized', { side });
+    this.decayConfig = { ...DEFAULT_DECAY_CONFIG, ...decayConfig };
+    this.lastDecayTime = Date.now();
+    logger.info('IntelManager initialized', { side, decayConfig: this.decayConfig });
   }
 
   /**
@@ -326,13 +335,394 @@ export class IntelManager {
   isAtCapacity(): boolean {
     return this.reports.size >= MAX_REPORTS_PER_SIDE;
   }
+
+  // =============================================================================
+  // CONFIDENCE DECAY AND INTEL CLASSIFICATION LOGIC
+  // =============================================================================
+
+  /**
+   * Starts the confidence decay interval
+   * Decay runs periodically based on decayIntervalMs configuration
+   */
+  startDecay(): void {
+    if (this.decayIntervalId !== null) {
+      logger.debug('Decay already running', { side: this.side });
+      return;
+    }
+
+    this.lastDecayTime = Date.now();
+    this.decayIntervalId = setInterval(() => {
+      this.runDecay();
+    }, this.decayConfig.decayIntervalMs);
+
+    logger.info('Intel decay started', {
+      side: this.side,
+      intervalMs: this.decayConfig.decayIntervalMs,
+    });
+  }
+
+  /**
+   * Stops the confidence decay interval
+   */
+  stopDecay(): void {
+    if (this.decayIntervalId !== null) {
+      clearInterval(this.decayIntervalId);
+      this.decayIntervalId = null;
+      logger.info('Intel decay stopped', { side: this.side });
+    }
+  }
+
+  /**
+   * Checks if decay is currently running
+   * @returns True if decay interval is active
+   */
+  isDecayRunning(): boolean {
+    return this.decayIntervalId !== null;
+  }
+
+  /**
+   * Disposes of the manager, cleaning up resources
+   */
+  dispose(): void {
+    this.stopDecay();
+    this.clearAllReports();
+    logger.info('IntelManager disposed', { side: this.side });
+  }
+
+  /**
+   * Runs the decay process on all reports
+   * - Decreases confidence based on time elapsed
+   * - Updates stale status and classification
+   * - Purges mobile targets that are too old
+   */
+  runDecay(): void {
+    const now = Date.now();
+    const elapsedMinutes = (now - this.lastDecayTime) / 60000;
+    this.lastDecayTime = now;
+
+    if (elapsedMinutes <= 0) {
+      return;
+    }
+
+    const purgedIds: string[] = [];
+    let decayedCount = 0;
+
+    for (const [id, report] of this.reports) {
+      const ageMinutes = (now - report.lastUpdated) / 60000;
+
+      // Check for purge (mobile targets only, not installations)
+      if (this.shouldPurge(report, ageMinutes)) {
+        purgedIds.push(id);
+        continue;
+      }
+
+      // Apply confidence decay
+      const decayAmount = this.decayConfig.decayRatePerMinute * elapsedMinutes;
+      const newConfidence = Math.max(
+        this.decayConfig.confidenceFloor,
+        report.confidence - decayAmount
+      );
+
+      if (newConfidence !== report.confidence) {
+        report.confidence = newConfidence;
+        decayedCount++;
+      }
+
+      // Update classification based on new state
+      this.classifyReport(report, ageMinutes);
+    }
+
+    // Purge old mobile reports
+    for (const id of purgedIds) {
+      this.reports.delete(id);
+    }
+
+    if (decayedCount > 0 || purgedIds.length > 0) {
+      logger.debug('Decay cycle completed', {
+        side: this.side,
+        decayedCount,
+        purgedCount: purgedIds.length,
+        elapsedMinutes: elapsedMinutes.toFixed(2),
+      });
+    }
+  }
+
+  /**
+   * Determines if a report should be purged
+   * @param report The report to check
+   * @param ageMinutes Age of the report in minutes
+   * @returns True if report should be purged
+   */
+  private shouldPurge(report: IntelReport, ageMinutes: number): boolean {
+    // Static targets (installations) are never purged
+    if (report.targetType === TargetType.INSTALLATION) {
+      return false;
+    }
+
+    // Mobile targets are purged after purgeThresholdMinutes
+    return ageMinutes >= this.decayConfig.purgeThresholdMinutes;
+  }
+
+  /**
+   * Classifies a report based on its age and source count
+   * Updates the report's level and stale status in place
+   * @param report The report to classify
+   * @param ageMinutes Age of the report in minutes (optional, calculated if not provided)
+   */
+  classifyReport(report: IntelReport, ageMinutes?: number): IntelLevel {
+    const now = Date.now();
+    const age = ageMinutes ?? (now - report.lastUpdated) / 60000;
+
+    // Determine stale status
+    const isStale = age >= this.decayConfig.staleThresholdMinutes;
+    report.stale = isStale;
+
+    // Determine classification level
+    let level: IntelLevel;
+
+    if (report.sourceCount >= 2) {
+      // Multi-source verified intel is CONFIRMED (unless very stale)
+      level = isStale ? IntelLevel.STALE : IntelLevel.CONFIRMED;
+    } else if (isStale) {
+      // Single source and stale
+      level = IntelLevel.STALE;
+    } else {
+      // Single source and recent
+      level = IntelLevel.ACTIVE;
+    }
+
+    report.level = level;
+    return level;
+  }
+
+  /**
+   * Reclassifies all reports based on current timestamps
+   * Useful after loading reports or changing decay configuration
+   */
+  reclassifyAllReports(): void {
+    const now = Date.now();
+    for (const report of this.reports.values()) {
+      const ageMinutes = (now - report.lastUpdated) / 60000;
+      this.classifyReport(report, ageMinutes);
+    }
+    logger.debug('All reports reclassified', { side: this.side, count: this.reports.size });
+  }
+
+  /**
+   * Finds an existing report within merge distance of a position
+   * Used to merge duplicate reports from multiple sources
+   * @param position Position to search near
+   * @param targetType Type of target to match
+   * @param mergeDistance Distance in meters to consider as same target (default 100m)
+   * @returns Matching report or undefined
+   */
+  findNearbyReport(
+    position: { x: number; y: number; z: number },
+    targetType: TargetType,
+    mergeDistance: number = 100
+  ): IntelReport | undefined {
+    for (const report of this.reports.values()) {
+      if (report.targetType !== targetType) {
+        continue;
+      }
+
+      const dx = position.x - report.position.x;
+      const dy = position.y - report.position.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance <= mergeDistance) {
+        return report;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Merges a new report into an existing one (same target from multiple sources)
+   * Increases source count, updates confidence, and promotes to CONFIRMED if applicable
+   * @param existingId ID of existing report
+   * @param newSource Source of the new corroborating report
+   * @param newPosition Optional updated position
+   * @param newConfidence Optional confidence from new source
+   * @returns Updated report or undefined if not found
+   */
+  mergeReport(
+    existingId: string,
+    newSource: IntelSource,
+    newPosition?: { x: number; y: number; z: number },
+    newConfidence?: number
+  ): IntelReport | undefined {
+    const existing = this.reports.get(existingId);
+    if (!existing) {
+      logger.warn('mergeReport: Report not found', { side: this.side, id: existingId });
+      return undefined;
+    }
+
+    // Increase source count
+    existing.sourceCount++;
+
+    // Update position if provided (average with existing for better accuracy)
+    if (newPosition) {
+      existing.position = {
+        x: (existing.position.x + newPosition.x) / 2,
+        y: (existing.position.y + newPosition.y) / 2,
+        z: (existing.position.z + newPosition.z) / 2,
+      };
+      // Improve position accuracy with multiple sources
+      existing.positionAccuracy = Math.max(10, existing.positionAccuracy * 0.7);
+    }
+
+    // Boost confidence with corroborating source (up to 1.0)
+    const confidenceBoost = newConfidence ?? 0.2;
+    existing.confidence = Math.min(1.0, existing.confidence + confidenceBoost);
+
+    // Update timestamp
+    existing.lastUpdated = Date.now();
+
+    // Reclassify (may become CONFIRMED with multiple sources)
+    this.classifyReport(existing);
+
+    logger.debug('Intel report merged', {
+      side: this.side,
+      id: existingId,
+      sourceCount: existing.sourceCount,
+      level: existing.level,
+    });
+
+    return existing;
+  }
+
+  /**
+   * Processes a new report, either creating it or merging with existing
+   * @param params Report creation parameters
+   * @param mergeDistance Distance to consider as same target (default 100m)
+   * @returns Created or updated report
+   */
+  processReport(
+    params: CreateIntelReportParams,
+    mergeDistance: number = 100
+  ): IntelReport | null {
+    // Check for existing nearby report of same type
+    const existing = this.findNearbyReport(params.position, params.targetType, mergeDistance);
+
+    if (existing) {
+      // Merge with existing report
+      return this.mergeReport(
+        existing.id,
+        params.source,
+        params.position,
+        params.confidence
+      ) ?? null;
+    }
+
+    // Create new report
+    return this.addReport(params);
+  }
+
+  /**
+   * Gets current decay configuration
+   * @returns Decay configuration
+   */
+  getDecayConfig(): IntelDecayConfig {
+    return { ...this.decayConfig };
+  }
+
+  /**
+   * Updates decay configuration
+   * @param config Partial configuration to update
+   */
+  updateDecayConfig(config: Partial<IntelDecayConfig>): void {
+    this.decayConfig = { ...this.decayConfig, ...config };
+    logger.info('Decay config updated', { side: this.side, decayConfig: this.decayConfig });
+
+    // If decay interval changed and decay is running, restart with new interval
+    if (config.decayIntervalMs !== undefined && this.decayIntervalId !== null) {
+      this.stopDecay();
+      this.startDecay();
+    }
+  }
+
+  /**
+   * Gets statistics about current intel reports
+   * @returns Intel statistics for debugging and monitoring
+   */
+  getStatistics(): IntelStatistics {
+    const reports = this.getAllReports();
+
+    // Initialize counters
+    const byLevel: Record<IntelLevel, number> = {
+      [IntelLevel.NO_INTEL]: 0,
+      [IntelLevel.STALE]: 0,
+      [IntelLevel.ACTIVE]: 0,
+      [IntelLevel.CONFIRMED]: 0,
+    };
+
+    const bySource: Record<IntelSource, number> = {
+      [IntelSource.VISUAL]: 0,
+      [IntelSource.RECON]: 0,
+      [IntelSource.REPORT]: 0,
+      [IntelSource.PLAYER]: 0,
+      [IntelSource.SENSOR]: 0,
+    };
+
+    const byTargetType: Record<TargetType, number> = {
+      [TargetType.INFANTRY]: 0,
+      [TargetType.VEHICLE]: 0,
+      [TargetType.ARMOR]: 0,
+      [TargetType.AIRCRAFT]: 0,
+      [TargetType.INSTALLATION]: 0,
+      [TargetType.UNKNOWN]: 0,
+    };
+
+    let totalConfidence = 0;
+    let staleCount = 0;
+    let activeCount = 0;
+    let confirmedCount = 0;
+    let oldestReport: number | null = null;
+    let newestReport: number | null = null;
+
+    for (const report of reports) {
+      byLevel[report.level]++;
+      bySource[report.source]++;
+      byTargetType[report.targetType]++;
+      totalConfidence += report.confidence;
+
+      if (report.stale) staleCount++;
+      if (report.level === IntelLevel.ACTIVE) activeCount++;
+      if (report.level === IntelLevel.CONFIRMED) confirmedCount++;
+
+      if (oldestReport === null || report.timestamp < oldestReport) {
+        oldestReport = report.timestamp;
+      }
+      if (newestReport === null || report.timestamp > newestReport) {
+        newestReport = report.timestamp;
+      }
+    }
+
+    return {
+      totalReports: reports.length,
+      byLevel,
+      bySource,
+      byTargetType,
+      averageConfidence: reports.length > 0 ? totalConfidence / reports.length : 0,
+      staleCount,
+      activeCount,
+      confirmedCount,
+      oldestReport,
+      newestReport,
+    };
+  }
 }
 
 /**
  * Factory function to create an IntelManager for a specific side
  * @param side Commander side (EAST or WEST)
+ * @param decayConfig Optional decay configuration
  * @returns New IntelManager instance
  */
-export function createIntelManager(side: CommanderSide): IntelManager {
-  return new IntelManager(side);
+export function createIntelManager(
+  side: CommanderSide,
+  decayConfig?: Partial<IntelDecayConfig>
+): IntelManager {
+  return new IntelManager(side, decayConfig);
 }
