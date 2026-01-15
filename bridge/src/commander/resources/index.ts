@@ -65,3 +65,19 @@ export {
   ResourceManager,
   resourceManager,
 } from './manager';
+
+// Spawn validator and validation functions
+export type {
+  SpawnValidationConfig,
+  SpawnRequest,
+} from './validator';
+
+export {
+  DEFAULT_VALIDATION_CONFIG,
+  SpawnValidator,
+  spawnValidator,
+  validateSpawn,
+  canSpawn,
+  getSpawnCost,
+  getPoolTypeForSpawn,
+} from './validator';
