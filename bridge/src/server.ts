@@ -14,6 +14,13 @@ import { sqfParser } from './sqf/parser';
 import { OpenAIClient } from './llm/openai';
 import { configManager } from './config/settings';
 import { logger } from './utils/logger';
+import { CommanderMode } from './game-state/types';
+import {
+  EastCommander,
+  WestCommander,
+  createEastCommander,
+  createWestCommander
+} from './commander';
 
 export class BridgeServer {
   private app: express.Application;
@@ -22,6 +29,13 @@ export class BridgeServer {
   private llmClient: OpenAIClient | null = null;
   private actionQueue: Array<{ sqf: string; metadata: any }> = [];
   private lastActionTime: number = 0;
+
+  // Commander system
+  private eastCommander: EastCommander | null = null;
+  private westCommander: WestCommander | null = null;
+  private commanderMode: CommanderMode | null = null;
+  private commanderMap: string | null = null;
+  private playerSide: 'WEST' | 'EAST' | 'INDEPENDENT' | null = null;
 
   constructor() {
     this.app = express();
@@ -138,13 +152,134 @@ export class BridgeServer {
       try {
         configManager.updateConfig(req.body);
         logger.info('Configuration updated');
-        
+
         // Re-initialize LLM client if needed
         this.setupLLMClient();
-        
+
         res.json({ updated: true });
       } catch (error) {
         logger.error('Error updating config', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Initialize commander system
+    this.app.post('/api/commander/init', (req: Request, res: Response) => {
+      try {
+        const { mode, difficulty, map, playerSide } = req.body;
+
+        // Validate required fields
+        if (!mode || difficulty === undefined || !map || !playerSide) {
+          return res.status(400).json({
+            error: 'Missing required fields',
+            required: ['mode', 'difficulty', 'map', 'playerSide']
+          });
+        }
+
+        // Validate mode
+        const validModes: CommanderMode[] = ['dual', 'east_only', 'west_only', 'interactive'];
+        if (!validModes.includes(mode)) {
+          return res.status(400).json({
+            error: 'Invalid mode',
+            validModes
+          });
+        }
+
+        // Validate difficulty
+        const difficultyNum = Number(difficulty);
+        if (isNaN(difficultyNum) || difficultyNum < 1 || difficultyNum > 10) {
+          return res.status(400).json({
+            error: 'Invalid difficulty',
+            message: 'Difficulty must be a number between 1 and 10'
+          });
+        }
+
+        // Validate playerSide
+        const validSides = ['WEST', 'EAST', 'INDEPENDENT'];
+        if (!validSides.includes(playerSide)) {
+          return res.status(400).json({
+            error: 'Invalid playerSide',
+            validSides
+          });
+        }
+
+        // Dispose existing commanders if any
+        if (this.eastCommander) {
+          this.eastCommander.dispose();
+          this.eastCommander = null;
+        }
+        if (this.westCommander) {
+          this.westCommander.dispose();
+          this.westCommander = null;
+        }
+
+        // Store commander settings
+        this.commanderMode = mode as CommanderMode;
+        this.commanderMap = map;
+        this.playerSide = playerSide as 'WEST' | 'EAST' | 'INDEPENDENT';
+
+        // Initialize commanders based on mode
+        switch (mode) {
+          case 'dual':
+            // Both commanders active
+            this.eastCommander = createEastCommander(mode, difficultyNum);
+            this.westCommander = createWestCommander(mode, difficultyNum);
+            this.eastCommander.activate();
+            this.westCommander.activate();
+            break;
+
+          case 'east_only':
+            // Only EAST commander (opposing WEST player)
+            this.eastCommander = createEastCommander(mode, difficultyNum);
+            this.eastCommander.activate();
+            break;
+
+          case 'west_only':
+            // Only WEST commander (opposing EAST player)
+            this.westCommander = createWestCommander(mode, difficultyNum);
+            this.westCommander.activate();
+            break;
+
+          case 'interactive':
+            // Interactive allied commander for player's side
+            if (playerSide === 'WEST') {
+              this.westCommander = createWestCommander(mode, difficultyNum);
+              this.westCommander.activate();
+            } else if (playerSide === 'EAST') {
+              this.eastCommander = createEastCommander(mode, difficultyNum);
+              this.eastCommander.activate();
+            }
+            break;
+        }
+
+        logger.info('Commander system initialized', {
+          mode,
+          difficulty: difficultyNum,
+          map,
+          playerSide,
+          eastActive: this.eastCommander?.getState().isActive ?? false,
+          westActive: this.westCommander?.getState().isActive ?? false
+        });
+
+        res.json({
+          initialized: true,
+          mode,
+          difficulty: difficultyNum,
+          map,
+          playerSide,
+          commanders: {
+            east: this.eastCommander ? {
+              active: this.eastCommander.getState().isActive,
+              side: 'EAST'
+            } : null,
+            west: this.westCommander ? {
+              active: this.westCommander.getState().isActive,
+              side: 'WEST'
+            } : null
+          }
+        });
+      } catch (error) {
+        logger.error('Error initializing commander system', { error });
         res.status(500).json({ error: 'Internal server error' });
       }
     });
