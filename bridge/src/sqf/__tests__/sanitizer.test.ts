@@ -40,9 +40,12 @@ describe('SQFSanitizer', () => {
       });
 
       it('should handle escaped double quotes (doubled)', () => {
+        // In SQF, "" inside double quotes is an escaped double quote character
+        // "Say ""Hello"" to them" = string containing: Say "Hello" to them
+        // When converted, "" becomes '' (escaped single quote in single-quoted string)
         const input = '"Say ""Hello"" to them"';
         const result = sanitizer.convertQuotes(input);
-        expect(result).toBe("'Say '''' to them'");
+        expect(result).toBe("'Say ''Hello'' to them'");
       });
 
       it('should handle multiple single quotes inside string', () => {
@@ -99,10 +102,11 @@ describe('SQFSanitizer', () => {
       });
 
       it('should handle adjacent strings', () => {
+        // In SQF, "a""b" is a single string containing a"b (where "" is escaped quote)
+        // When converted: "a""b" -> 'a''b' (where '' is escaped single quote)
         const input = '"a""b"';
         const result = sanitizer.convertQuotes(input);
-        // "" inside is escaped quote, converts to ''
-        expect(result).toBe("'a''''b'");
+        expect(result).toBe("'a''b'");
       });
     });
   });
