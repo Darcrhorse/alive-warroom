@@ -283,6 +283,82 @@ export class BridgeServer {
         res.status(500).json({ error: 'Internal server error' });
       }
     });
+
+    // Update commander with game state and get decisions
+    this.app.post('/api/commander/update', async (req: Request, res: Response) => {
+      try {
+        const gameState: GameState = req.body;
+
+        // Validate required fields
+        if (!gameState.timestamp || !gameState.players) {
+          return res.status(400).json({
+            error: 'Invalid game state',
+            required: ['timestamp', 'players']
+          });
+        }
+
+        // Check if commander system is initialized
+        if (!this.commanderMode) {
+          return res.status(400).json({
+            error: 'Commander system not initialized',
+            message: 'Call /api/commander/init first'
+          });
+        }
+
+        // Process game state with active commanders
+        const decisions: {
+          east: {
+            shouldAct: boolean;
+            decision: any;
+            state: any;
+          } | null;
+          west: {
+            shouldAct: boolean;
+            decision: any;
+            state: any;
+          } | null;
+        } = {
+          east: null,
+          west: null
+        };
+
+        // Process with East commander if active
+        if (this.eastCommander) {
+          const result = await this.eastCommander.processGameState(gameState);
+          decisions.east = {
+            shouldAct: result.shouldAct,
+            decision: result.decision,
+            state: result.stateSnapshot
+          };
+        }
+
+        // Process with West commander if active
+        if (this.westCommander) {
+          const result = await this.westCommander.processGameState(gameState);
+          decisions.west = {
+            shouldAct: result.shouldAct,
+            decision: result.decision,
+            state: result.stateSnapshot
+          };
+        }
+
+        logger.info('Commander update processed', {
+          mode: this.commanderMode,
+          eastShouldAct: decisions.east?.shouldAct ?? false,
+          westShouldAct: decisions.west?.shouldAct ?? false
+        });
+
+        res.json({
+          processed: true,
+          timestamp: Date.now(),
+          mode: this.commanderMode,
+          decisions
+        });
+      } catch (error) {
+        logger.error('Error processing commander update', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
   }
 
   private async processGameState(gameState: GameState): Promise<void> {
