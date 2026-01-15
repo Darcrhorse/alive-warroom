@@ -20,6 +20,46 @@ export class SQFSanitizer {
   }
 
   /**
+   * Convert double quotes to single quotes in SQF code
+   * Handles nested quotes by doubling single quotes
+   */
+  convertQuotes(sqf: string): string {
+    // First, double any existing single quotes within double-quoted strings
+    // Then replace double quotes with single quotes
+    let result = '';
+    let inString = false;
+    let i = 0;
+
+    while (i < sqf.length) {
+      const char = sqf[i];
+
+      if (char === '"') {
+        // Check for escaped double quote ("")
+        if (i + 1 < sqf.length && sqf[i + 1] === '"') {
+          // Escaped double quote inside a string - convert to doubled single quote
+          result += "''";
+          i += 2;
+          continue;
+        }
+
+        // Toggle string state and convert to single quote
+        inString = !inString;
+        result += "'";
+        i++;
+      } else if (char === "'" && inString) {
+        // Single quote inside a string needs to be doubled
+        result += "''";
+        i++;
+      } else {
+        result += char;
+        i++;
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Remove potentially dangerous inline comments
    */
   removeInlineComments(sqf: string): string {
