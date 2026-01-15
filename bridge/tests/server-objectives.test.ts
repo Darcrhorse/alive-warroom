@@ -5,6 +5,19 @@
 import { BridgeServer } from '../src/server';
 import { configManager } from '../src/config/settings';
 
+// Response type interfaces
+interface ObjectiveStatusSuccessResponse {
+  received: boolean;
+  objectiveId: string;
+  status: string;
+  timestamp: number;
+}
+
+interface ObjectiveStatusErrorResponse {
+  error: string;
+  message?: string;
+}
+
 describe('BridgeServer - /api/objectives/status', () => {
   let server: BridgeServer;
   let baseUrl: string;
@@ -51,7 +64,7 @@ describe('BridgeServer - /api/objectives/status', () => {
     });
 
     expect(response.status).toBe(200);
-    const result = await response.json() as { received: boolean; objectiveId: string; status: string; timestamp: number };
+    const result = await response.json() as ObjectiveStatusSuccessResponse;
     expect(result.received).toBe(true);
     expect(result.objectiveId).toBe('obj_001');
     expect(result.status).toBe('COMPLETE');
@@ -71,7 +84,7 @@ describe('BridgeServer - /api/objectives/status', () => {
     });
 
     expect(response.status).toBe(200);
-    const result = await response.json() as { received: boolean; objectiveId: string; status: string };
+    const result = await response.json() as ObjectiveStatusSuccessResponse;
     expect(result.received).toBe(true);
     expect(result.objectiveId).toBe('obj_002');
     expect(result.status).toBe('ACTIVE');
@@ -89,7 +102,7 @@ describe('BridgeServer - /api/objectives/status', () => {
     });
 
     expect(response.status).toBe(400);
-    const result = await response.json() as { error: string };
+    const result = await response.json() as ObjectiveStatusErrorResponse;
     expect(result.error).toBe('Missing required fields');
   });
 
@@ -105,7 +118,7 @@ describe('BridgeServer - /api/objectives/status', () => {
     });
 
     expect(response.status).toBe(400);
-    const result = await response.json() as { error: string };
+    const result = await response.json() as ObjectiveStatusErrorResponse;
     expect(result.error).toBe('Missing required fields');
   });
 
@@ -122,7 +135,7 @@ describe('BridgeServer - /api/objectives/status', () => {
     });
 
     expect(response.status).toBe(400);
-    const result = await response.json() as { error: string; message: string };
+    const result = await response.json() as ObjectiveStatusErrorResponse;
     expect(result.error).toBe('Invalid status');
     expect(result.message).toContain('ACTIVE');
     expect(result.message).toContain('COMPLETE');
@@ -147,7 +160,7 @@ describe('BridgeServer - /api/objectives/status', () => {
       });
 
       expect(response.status).toBe(200);
-      const result = await response.json() as { status: string };
+      const result = await response.json() as ObjectiveStatusSuccessResponse;
       expect(result.status).toBe(status);
     }
   });
@@ -166,7 +179,7 @@ describe('BridgeServer - /api/objectives/status', () => {
     });
 
     expect(response.status).toBe(200);
-    const result = await response.json() as { received: boolean };
+    const result = await response.json() as ObjectiveStatusSuccessResponse;
     expect(result.received).toBe(true);
   });
 
@@ -187,7 +200,7 @@ describe('BridgeServer - /api/objectives/status', () => {
     });
 
     expect(response.status).toBe(200);
-    const result = await response.json() as { received: boolean };
+    const result = await response.json() as ObjectiveStatusSuccessResponse;
     expect(result.received).toBe(true);
   });
 });
