@@ -45,27 +45,27 @@ if ((_extTest select 0) == "") then {
 // Register event handlers for automatic event logging
 [] call LLMGM_fnc_registerCallbacks;
 
-// Start main update loop
+// Start main update loop using CBA waitAndExecute (more reliable than spawn)
 if (LLMGM_enabled) then {
-    [] spawn {
-        // Wait a bit for mission to fully initialize
-        sleep 5;
-        
-        while {true} do {
-            sleep LLMGM_updateInterval;
-            
-            if (LLMGM_enabled) then {
-                // Collect and send game state
-                private _state = [] call LLMGM_fnc_collectGameState;
-                [_state] call LLMGM_fnc_sendToBridge;
-                
-                // Check for pending actions
-                [] call LLMGM_fnc_receiveFromBridge;
-            };
-        };
+    // Define the update function that calls itself
+    LLMGM_fnc_updateLoop = {
+        if (!LLMGM_enabled) exitWith {};
+
+        // Collect and send game state
+        private _state = [] call LLMGM_fnc_collectGameState;
+        [_state] call LLMGM_fnc_sendToBridge;
+
+        // Check for pending actions
+        [] call LLMGM_fnc_receiveFromBridge;
+
+        // Schedule next update (self-calling)
+        [LLMGM_fnc_updateLoop, [], LLMGM_updateInterval] call CBA_fnc_waitAndExecute;
     };
-    
-    diag_log format ["[LLMGM] Update loop started (interval: %1s)", LLMGM_updateInterval];
+
+    // Start the loop after initial delay
+    [LLMGM_fnc_updateLoop, [], 5] call CBA_fnc_waitAndExecute;
+
+    diag_log format ["[LLMGM] Update loop started with CBA scheduler (interval: %1s)", LLMGM_updateInterval];
 };
 
 // Mark as initialized

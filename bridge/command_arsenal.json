@@ -1,0 +1,5 @@
+{
+  "sqf": "private _player = allPlayers select 0; private _dir = getDir _player; private _pos = _player getPos [3, _dir]; private _box = createVehicle ['B_supplyCrate_F', _pos, [], 0, 'NONE']; _box setDir (_dir + 180); [_box, true] call ace_arsenal_fnc_initBox; ['ACE Arsenal placed in front of you.'] remoteExec ['systemChat', 0];"
+  ,
+  "description": "Place ACE Arsenal in front of player"
+}

@@ -48,6 +48,10 @@ class CfgFunctions {
             class registerCallbacks {
                 ext = ".sqf";
             };
+
+            class exportToMCP {
+                ext = ".sqf";
+            };
         };
     };
 };

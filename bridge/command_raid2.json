@@ -1,0 +1,4 @@
+{
+  "sqf": "private _fobPos = missionNamespace getVariable ['CLAUDE_FOB', getMarkerPos 'FOB RAVEN']; if (_fobPos isEqualTo [0,0,0]) then { { if ((toLower (markerText _x)) find 'raven' >= 0 || (toLower _x) find 'raven' >= 0) exitWith { _fobPos = getMarkerPos _x; }; } forEach allMapMarkers; }; [] spawn { private _fobPos = missionNamespace getVariable ['CLAUDE_FOB', [0,0,0]]; for '_salvo' from 1 to 3 do { for '_i' from 1 to 4 do { private _impactPos = [(_fobPos select 0) + (random 100) - 50, (_fobPos select 1) + (random 100) - 50, 0]; private _shell = createVehicle ['Sh_82mm_AMOS', _impactPos, [], 0, 'NONE']; sleep (0.5 + random 1); }; sleep (3 + random 2); }; }; ['*BOOM* *BOOM* Mortar rounds impacting inside the wire!'] remoteExec ['systemChat', 0];",
+  "description": "Taliban Night Raid - Mortar Barrage"
+}

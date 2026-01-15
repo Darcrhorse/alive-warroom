@@ -1,0 +1,4 @@
+{
+  "sqf": "private _fobPos = missionNamespace getVariable ['CLAUDE_FOB', getMarkerPos 'FOB RAVEN']; if (_fobPos isEqualTo [0,0,0]) then { { if ((toLower (markerText _x)) find 'raven' >= 0 || (toLower _x) find 'raven' >= 0) exitWith { _fobPos = getMarkerPos _x; }; } forEach allMapMarkers; }; ['Manning static weapons...'] remoteExec ['systemChat', 0]; private _statics = nearestObjects [_fobPos, ['StaticWeapon'], 150]; private _manned = 0; { private _static = _x; if (count (crew _static) == 0) then { private _grp = createGroup WEST; private _gunner = _grp createUnit ['rhsusf_usmc_marpat_d_rifleman', getPos _static, [], 0, 'NONE']; _gunner moveInGunner _static; _grp setBehaviour 'COMBAT'; _grp setCombatMode 'RED'; _manned = _manned + 1; }; } forEach _statics; [format ['%1 static weapons now manned.', _manned]] remoteExec ['systemChat', 0];",
+  "description": "Man static weapons at FOB"
+}

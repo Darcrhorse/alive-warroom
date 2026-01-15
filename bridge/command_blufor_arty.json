@@ -1,0 +1,4 @@
+{
+  "sqf": "private _targetLoc = (nearestLocations [[worldSize/2, worldSize/2, 0], ['NameCity','NameCityCapital','NameVillage'], 50000]) select {(toLower (text _x)) find 'mazem' >= 0}; private _targetPos = if (count _targetLoc > 0) then { position (_targetLoc select 0) } else { [5000, 8000, 0] }; ['OVERLORD: Fire mission authorized. MLRS battery engaging Mazemovo.'] remoteExec ['systemChat', 0]; private _artyPos = [(_targetPos select 0) + (random 150) - 75, (_targetPos select 1) + (random 150) - 75, 0]; for '_i' from 1 to 12 do { private _impactPos = [(_artyPos select 0) + (random 200) - 100, (_artyPos select 1) + (random 200) - 100, 0]; [_impactPos, _i * 0.8] spawn { params ['_pos', '_delay']; sleep _delay; private _shell = createVehicle ['Sh_155mm_AMOS', _pos, [], 0, 'NONE']; }; }; ['STEEL RAIN: Splash out! Rockets on target!'] remoteExec ['systemChat', 0];",
+  "description": "BLUFOR Artillery barrage on Mazemovo"
+}

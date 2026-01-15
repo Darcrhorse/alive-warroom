@@ -1,0 +1,4 @@
+{
+  "sqf": "[''] remoteExec ['systemChat', 0]; ['═══ INTERCEPTED ENEMY COMMS ═══'] remoteExec ['systemChat', 0]; ['[TALIBAN]: All fighters push forward! Allah Akbar!'] remoteExec ['systemChat', 0]; ['[TALIBAN]: Mortars keep firing! Suppress the infidels!'] remoteExec ['systemChat', 0]; private _fobPos = missionNamespace getVariable ['CLAUDE_FOB', [0,0,0]]; private _opforGroups = allGroups select {side _x == EAST && {alive leader _x} && {leader _x distance _fobPos < 600}}; { private _grp = _x; _grp setBehaviour 'COMBAT'; _grp setCombatMode 'RED'; _grp setSpeedMode 'FULL'; if (count waypoints _grp < 2) then { private _wp = _grp addWaypoint [_fobPos, 50]; _wp setWaypointType 'SAD'; }; } forEach _opforGroups; ['[TALIBAN]: Flank them from the east! Move move move!'] remoteExec ['systemChat', 0];",
+  "description": "OPFOR Orders - Press attack"
+}

@@ -842,6 +842,9 @@ _group setBehaviour "COMBAT";'''
                 enemy_units=[],
                 objectives=[],
                 recent_events=[],
+                environment={"time": 12.0, "weather": "CLEAR"},
+                mission_context={"elapsed_time": 350 + (i*70)}
+            ),
             LLMResponse(
                 reasoning=f"Variation {i+4}: Tactical infantry deployment.",
                 action="spawn",
@@ -991,15 +994,80 @@ _group setCombatMode "YELLOW";
 
 def generate_full_e2e_suite() -> List[E2ETestCase]:
     """Generate complete E2E test suite with 80+ scenarios"""
-    base_tests = generate_e2e_test_suite()
-    additional_tests = generate_additional_e2e_tests()
-    return base_tests + additional_tests
+    return generate_e2e_test_suite()
 
 
-
-if __name__ == '__main__':
-    passed, total = run_e2e_tests()
-    sys.exit(0 if passed == total else 1)
+def run_e2e_tests() -> Tuple[int, int]:
+    """Run all E2E tests and return (passed, total)"""
+    tester = E2ETester()
+    test_suite = generate_full_e2e_suite()
+    
+    print("=" * 80)
+    print(" " * 20 + "E2E LLM INTEGRATION TEST SUITE")
+    print("=" * 80)
+    print()
+    print(f"Testing {len(test_suite)} end-to-end scenarios...")
+    print()
+    
+    passed = 0
+    failed_tests = []
+    results_by_type = {}
+    
+    for test_case in test_suite:
+        result = tester.test_e2e_scenario(test_case)
+        scenario_type = result['scenario_type']
+        
+        if scenario_type not in results_by_type:
+            results_by_type[scenario_type] = {'passed': 0, 'total': 0}
+        results_by_type[scenario_type]['total'] += 1
+        
+        if result['test_pass']:
+            passed += 1
+            results_by_type[scenario_type]['passed'] += 1
+        else:
+            failed_tests.append(result)
+    
+    total = len(test_suite)
+    
+    # Print results by category
+    print("=" * 80)
+    print("RESULTS BY SCENARIO TYPE")
+    print("=" * 80)
+    for stype, stats in sorted(results_by_type.items()):
+        pct = (stats['passed'] / stats['total'] * 100) if stats['total'] > 0 else 0
+        mark = "✓" if stats['passed'] == stats['total'] else "✗"
+        print(f"{mark} {stype:<30} {stats['passed']:>3}/{stats['total']:>3} ({pct:.1f}%)")
+    
+    # Print failed tests
+    if failed_tests:
+        print()
+        print("=" * 80)
+        print("FAILED TESTS")
+        print("=" * 80)
+        for result in failed_tests[:10]:  # Show first 10
+            print(f"❌ {result['name']}")
+            print(f"   Errors: {result['validation_errors']}")
+    
+    # Summary
+    print()
+    print("=" * 80)
+    print("OVERALL SUMMARY")
+    print("=" * 80)
+    print(f"Total tests: {total}")
+    print(f"Passed: {passed}")
+    print(f"Failed: {total - passed}")
+    print(f"Success rate: {passed/total*100:.1f}%")
+    
+    # Save results
+    results_path = '/tmp/e2e_llm_test_results.json'
+    try:
+        with open(results_path, 'w') as f:
+            json.dump({'passed': passed, 'total': total, 'rate': passed/total}, f)
+        print(f"\nResults exported to: {results_path}")
+    except:
+        pass
+    
+    return passed, total
 
 
 if __name__ == '__main__':

@@ -1,0 +1,4 @@
+{
+  "sqf": "private _targetPos = getPos (allPlayers select 0); ['Anvil 1-1, A-164 Wipeout inbound for CAS!'] remoteExec ['systemChat', 0]; private _spawnPos = [(_targetPos select 0) - 3000, (_targetPos select 1) - 3000, 400]; private _grp = createGroup WEST; private _jet = createVehicle ['B_Plane_CAS_01_dynamicLoadout_F', _spawnPos, [], 0, 'FLY']; createVehicleCrew _jet; (crew _jet) joinSilent _grp; _jet flyInHeight 250; private _wp = _grp addWaypoint [_targetPos, 0]; _wp setWaypointType 'SAD'; _wp setWaypointCombatMode 'RED'; ['Anvil 1-1, engaging targets!'] remoteExec ['systemChat', 0];",
+  "description": "A-164 Wipeout CAS on player position"
+}

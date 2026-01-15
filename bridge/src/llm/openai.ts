@@ -94,15 +94,16 @@ export class OpenAIClient implements LLMClient {
 
   private buildDecisionPrompt(gameState: GameState, history: EventHistory): string {
     const recentEvents = history.events.slice(-10);
-    
+    const enemyUnits = gameState.enemyUnits || [];
+
     return `
 # Current Game State
 
 ## Players (${gameState.players.length})
 ${gameState.players.map(p => `- ${p.name} at [${p.position.x.toFixed(0)}, ${p.position.y.toFixed(0)}] - Health: ${(p.health * 100).toFixed(0)}%`).join('\n')}
 
-## Enemy Units (${gameState.enemyUnits.length})
-${gameState.enemyUnits.length > 0 ? gameState.enemyUnits.slice(0, 5).map(u => `- ${u.type} at [${u.position.x.toFixed(0)}, ${u.position.y.toFixed(0)}]`).join('\n') : 'None visible'}
+## Enemy Units (${enemyUnits.length})
+${enemyUnits.length > 0 ? enemyUnits.slice(0, 5).map(u => `- ${u.type} at [${u.position.x.toFixed(0)}, ${u.position.y.toFixed(0)}]`).join('\n') : 'None visible'}
 
 ## Active Objectives (${gameState.objectives.length})
 ${gameState.objectives.map(o => `- ${o.description} (${o.state})`).join('\n') || 'None'}

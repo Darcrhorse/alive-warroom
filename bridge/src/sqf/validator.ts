@@ -67,8 +67,9 @@ const SUSPICIOUS_PATTERNS = [
 
 /**
  * Maximum allowed code length
+ * Increased to 20000 to allow complex operations like FOB establishment
  */
-const MAX_CODE_LENGTH = 10000;
+const MAX_CODE_LENGTH = 20000;
 
 /**
  * Maximum nesting depth
@@ -190,9 +191,19 @@ export class SQFValidator {
   }
 
   // Helper methods
+
+  /**
+   * Remove string literals from code to avoid counting brackets inside strings
+   */
+  private stripStrings(code: string): string {
+    // Remove double-quoted strings (handles escaped quotes)
+    return code.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  }
+
   private checkBraceBalance(code: string): number {
+    const stripped = this.stripStrings(code);
     let balance = 0;
-    for (const char of code) {
+    for (const char of stripped) {
       if (char === '{') balance++;
       if (char === '}') balance--;
     }
@@ -200,8 +211,9 @@ export class SQFValidator {
   }
 
   private checkBracketBalance(code: string): number {
+    const stripped = this.stripStrings(code);
     let balance = 0;
-    for (const char of code) {
+    for (const char of stripped) {
       if (char === '[') balance++;
       if (char === ']') balance--;
     }
@@ -209,12 +221,70 @@ export class SQFValidator {
   }
 
   private checkParenBalance(code: string): number {
+    const stripped = this.stripStrings(code);
     let balance = 0;
-    for (const char of code) {
+    for (const char of stripped) {
       if (char === '(') balance++;
       if (char === ')') balance--;
     }
     return balance;
+  }
+
+  /**
+   * Attempt to repair common SQF syntax errors
+   */
+  repairSQF(sqf: string): { repaired: string; fixes: string[] } {
+    let code = sqf;
+    const fixes: string[] = [];
+
+    // Fix 1: Add missing closing brackets at end
+    const bracketBalance = this.checkBracketBalance(code);
+    if (bracketBalance > 0) {
+      // Missing closing brackets - add them at the end before final semicolon
+      const closingBrackets = ']'.repeat(bracketBalance);
+      if (code.trimEnd().endsWith(';')) {
+        code = code.trimEnd().slice(0, -1) + closingBrackets + ';';
+      } else {
+        code = code + closingBrackets;
+      }
+      fixes.push(`Added ${bracketBalance} missing closing bracket(s)`);
+    }
+
+    // Fix 2: Add missing closing braces at end
+    const braceBalance = this.checkBraceBalance(code);
+    if (braceBalance > 0) {
+      const closingBraces = '};'.repeat(braceBalance);
+      code = code.trimEnd() + '\n' + closingBraces;
+      fixes.push(`Added ${braceBalance} missing closing brace(s)`);
+    }
+
+    // Fix 3: Add missing closing parens
+    const parenBalance = this.checkParenBalance(code);
+    if (parenBalance > 0) {
+      const closingParens = ')'.repeat(parenBalance);
+      if (code.trimEnd().endsWith(';')) {
+        code = code.trimEnd().slice(0, -1) + closingParens + ';';
+      } else {
+        code = code + closingParens;
+      }
+      fixes.push(`Added ${parenBalance} missing closing parenthesis(es)`);
+    }
+
+    // Fix 4: Remove orphan closing brackets at start (LLM sometimes outputs partial code)
+    const leadingCloseMatch = code.match(/^[\s\n]*[\]\}\)]+/);
+    if (leadingCloseMatch) {
+      code = code.slice(leadingCloseMatch[0].length);
+      fixes.push('Removed orphan closing brackets from start');
+    }
+
+    // Fix 5: Ensure final semicolon
+    const trimmed = code.trimEnd();
+    if (trimmed.length > 0 && !trimmed.endsWith(';') && !trimmed.endsWith('}')) {
+      code = trimmed + ';';
+      fixes.push('Added missing final semicolon');
+    }
+
+    return { repaired: code, fixes };
   }
 
   private checkNestingDepth(code: string): number {

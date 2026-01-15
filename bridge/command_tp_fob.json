@@ -1,0 +1,4 @@
+{
+  "sqf": "private _fobPos = getMarkerPos 'FOB RAVEN'; if (_fobPos isEqualTo [0,0,0]) then { _fobPos = getMarkerPos 'fob raven'; }; if (_fobPos isEqualTo [0,0,0]) then { _fobPos = getMarkerPos 'FOB_RAVEN'; }; if (_fobPos isEqualTo [0,0,0]) then { { if ((toLower (markerText _x)) find 'raven' >= 0 || (toLower _x) find 'raven' >= 0) exitWith { _fobPos = getMarkerPos _x; }; } forEach allMapMarkers; }; if (_fobPos isEqualTo [0,0,0]) exitWith { ['ERROR: Marker FOB RAVEN not found!'] remoteExec ['systemChat', 0]; }; { _x setPos [(_fobPos select 0) + (random 10) - 5, (_fobPos select 1) + (random 10) - 5, 0]; } forEach allPlayers; ['All players moved to FOB RAVEN.'] remoteExec ['systemChat', 0];",
+  "description": "Teleport players to FOB RAVEN"
+}

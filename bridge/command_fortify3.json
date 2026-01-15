@@ -1,0 +1,4 @@
+{
+  "sqf": "private _fobPos = missionNamespace getVariable ['CLAUDE_FOB', getMarkerPos 'FOB RAVEN']; ['Deploying helicopters to helipad...'] remoteExec ['systemChat', 0]; private _helis = [['RHS_UH1Y_UNARMED_d', [-60, -50]], ['RHS_UH1Y_UNARMED_d', [-80, -50]], ['RHS_UH60M_d', [-100, -40]], ['RHS_UH60M_MEV2_d', [-120, -40]], ['RHS_CH_47F_light', [-140, -30]], ['RHS_AH1Z_wd', [80, -60]], ['RHS_AH1Z_wd', [100, -60]]]; { private _heliClass = _x select 0; private _offset = _x select 1; private _pos = [(_fobPos select 0) + (_offset select 0), (_fobPos select 1) + (_offset select 1), 0]; private _heli = createVehicle [_heliClass, _pos, [], 0, 'NONE']; _heli setDir 90; _heli setFuel 1; _heli setVehicleAmmo 1; } forEach _helis; ['Helicopters deployed: 2x Venoms, 2x Blackhawks, 1x Chinook, 2x Cobras'] remoteExec ['systemChat', 0];",
+  "description": "FOB RAVEN - Helicopters"
+}

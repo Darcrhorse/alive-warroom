@@ -1,0 +1,4 @@
+{
+  "sqf": "private _player = allPlayers select 0; private _dir = getDir _player; private _pos = _player getPos [3, _dir]; private _box = createVehicle ['B_supplyCrate_F', _pos, [], 0, 'NONE']; _box setDir (_dir + 180); ['AmmoboxInit', [_box, true]] call BIS_fnc_arsenal; [_box, allItems + allWeapons + allMagazines + allUniformItems] call ace_arsenal_fnc_addVirtualItems; _box addAction ['<t color=\"#00FF00\">Open Virtual Arsenal</t>', {['Open', true] call BIS_fnc_arsenal;}]; _box addAction ['<t color=\"#00FFFF\">Open ACE Arsenal</t>', {[player, _this select 0, true] call ace_arsenal_fnc_openBox;}]; ['FULL Virtual Arsenal placed - use scroll menu to open.'] remoteExec ['systemChat', 0];",
+  "description": "Place FULL Virtual Arsenal box"
+}

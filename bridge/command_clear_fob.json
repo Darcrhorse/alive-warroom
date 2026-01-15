@@ -1,0 +1,4 @@
+{
+  "sqf": "private _fobPos = missionNamespace getVariable ['CLAUDE_FOB', getMarkerPos 'FOB RAVEN']; if (_fobPos isEqualTo [0,0,0]) then { { if ((toLower (markerText _x)) find 'raven' >= 0 || (toLower _x) find 'raven' >= 0) exitWith { _fobPos = getMarkerPos _x; }; } forEach allMapMarkers; }; private _deleted = 0; { if (side _x == EAST && _x distance _fobPos < 300) then { deleteVehicle _x; _deleted = _deleted + 1; }; } forEach allUnits; { if (side _x == EAST && _x distance _fobPos < 300) then { { deleteVehicle _x; } forEach (crew _x); deleteVehicle _x; _deleted = _deleted + 1; }; } forEach vehicles; [format ['FOB RAVEN secured - %1 hostiles eliminated from 300m radius.', _deleted]] remoteExec ['systemChat', 0]; ['Perimeter clear. FOB is safe.'] remoteExec ['systemChat', 0];",
+  "description": "Clear EAST units 300m around FOB RAVEN"
+}

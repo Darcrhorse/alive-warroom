@@ -1,0 +1,4 @@
+{
+  "sqf": "private _loc = (nearestLocations [[0,0,0], ['NameCity','NameCityCapital','NameVillage'], 50000]) select {(text _x) find 'Mazem' >= 0}; if (count _loc == 0) exitWith { systemChat 'Location not found - searching all locations...'; private _allLocs = nearestLocations [[worldSize/2, worldSize/2, 0], ['NameCity','NameCityCapital','NameVillage'], 50000]; { systemChat format ['Found: %1 at %2', text _x, position _x]; } forEach (_allLocs select [0, 10]); }; private _pos = position (_loc select 0); systemChat format ['Found Mazemovo at %1 - spawning defenders!', _pos];",
+  "description": "Find Mazemovo location"
+}

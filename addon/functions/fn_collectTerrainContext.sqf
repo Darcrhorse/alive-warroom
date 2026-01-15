@@ -94,7 +94,7 @@ private _directionNames = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
     _dirData set ["inWater", surfaceIsWater _checkPos];
     
     // Roads
-    private _roads = _checkPos nearRoads 100];
+    private _roads = _checkPos nearRoads [100];
     _dirData set ["roadCount", count _roads];
     _dirData set ["hasRoads", count _roads > 0];
     

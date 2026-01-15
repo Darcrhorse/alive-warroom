@@ -1,0 +1,4 @@
+{
+  "sqf": "['═══════════════════════════════════════'] remoteExec ['systemChat', 0]; ['  NIGHT OPERATIONS COMMENCING'] remoteExec ['systemChat', 0]; ['═══════════════════════════════════════'] remoteExec ['systemChat', 0]; setDate [2024, 7, 15, 2, 30]; forceWeatherChange; 0 setOvercast 0.3; 0 setFog 0.05; ['Time set to 0230 hours. Low visibility conditions.'] remoteExec ['systemChat', 0]; simulSetHumidity 0.6;",
+  "description": "Set night time"
+}

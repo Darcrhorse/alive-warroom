@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>War Room - AI Commander Dashboard</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0a12;
+            color: #eee;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #e94560;
+        }
+
+        .header h1 {
+            font-size: 20px;
+            color: #e94560;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .status-row {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.connected { background: #00ff88; }
+        .status-dot.stale { background: #ffaa00; }
+        .status-dot.lost { background: #ff4444; }
+        .status-dot.idle { background: #888; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 280px 1fr 280px;
+            grid-template-rows: 1fr auto;
+            gap: 10px;
+            padding: 10px;
+            height: calc(100vh - 60px);
+        }
+
+        .side-panel {
+            background: #12121a;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .side-panel.west { border: 1px solid #4488ff; }
+        .side-panel.east { border: 1px solid #ff4444; }
+
+        .side-header {
+            padding: 10px 15px;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-size: 14px;
+        }
+
+        .side-header.west { background: linear-gradient(90deg, #1a3a6e 0%, #12121a 100%); color: #4488ff; }
+        .side-header.east { background: linear-gradient(90deg, #6e1a1a 0%, #12121a 100%); color: #ff4444; }
+
+        .force-summary {
+            padding: 10px 15px;
+            background: #0a0a12;
+        }
+
+        .force-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            font-size: 13px;
+        }
+
+        .force-value { font-weight: bold; }
+        .force-value.west { color: #4488ff; }
+        .force-value.east { color: #ff4444; }
+
+        .progress-bar {
+            height: 6px;
+            background: #1a1a2e;
+            border-radius: 3px;
+            margin-top: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+
+        .progress-fill.west { background: linear-gradient(90deg, #4488ff, #66aaff); }
+        .progress-fill.east { background: linear-gradient(90deg, #ff4444, #ff6666); }
+        .progress-fill.green { background: linear-gradient(90deg, #00aa44, #00ff88); }
+        .progress-fill.yellow { background: linear-gradient(90deg, #aa8800, #ffcc00); }
+
+        .log-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background: #0a0a12;
+        }
+
+        .log-entry {
+            padding: 8px 10px;
+            margin-bottom: 6px;
+            border-radius: 4px;
+            background: #16162a;
+            border-left: 3px solid #555;
+            font-size: 12px;
+        }
+
+        .log-entry.action { border-left-color: #ff00ff; background: #1a1a2a; }
+        .log-entry.player { border-left-color: #00ff88; background: #1a2a1a; }
+        .log-entry.response { border-left-color: #ffaa00; }
+        .log-entry.combat { border-left-color: #ff4444; background: #2a1a1a; }
+
+        .log-time { font-size: 10px; color: #666; }
+
+        .chat-box {
+            padding: 10px;
+            background: #12121a;
+        }
+
+        .chat-input {
+            width: 100%;
+            padding: 8px 10px;
+            border: none;
+            border-radius: 4px;
+            background: #0a0a12;
+            color: #fff;
+            font-size: 12px;
+        }
+
+        .chat-input:focus { outline: 1px solid #e94560; }
+
+        /* Center Panel - Map & Stats */
+        .center-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 10px;
+        }
+
+        .stat-card {
+            background: #12121a;
+            border-radius: 8px;
+            padding: 12px 15px;
+            text-align: center;
+            border: 1px solid #2a2a3a;
+        }
+
+        .stat-card.highlight { border-color: #e94560; }
+
+        .stat-label {
+            font-size: 10px;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .stat-value.west { color: #4488ff; }
+        .stat-value.east { color: #ff4444; }
+        .stat-value.contested { color: #ffaa00; }
+        .stat-value.neutral { color: #888; }
+
+        .map-container {
+            flex: 1;
+            background: #12121a;
+            border-radius: 8px;
+            border: 1px solid #2a2a3a;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .map-header {
+            padding: 8px 15px;
+            background: #16162a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            z-index: 1000;
+            position: relative;
+        }
+
+        #leaflet-map {
+            width: 100%;
+            height: calc(100% - 36px);
+            background: #1a1a2e;
+        }
+
+        /* Leaflet customization */
+        .leaflet-container { background: #1a1a2e; }
+        .leaflet-control-attribution { display: none; }
+        .leaflet-control-zoom a { background: #12121a; color: #eee; border-color: #333; }
+        .leaflet-control-zoom a:hover { background: #2a2a3a; }
+
+        /* Custom markers */
+        .unit-marker {
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.5);
+            box-shadow: 0 0 10px currentColor;
+        }
+        .unit-marker.west { background: #4488ff; }
+        .unit-marker.east { background: #ff4444; }
+        .unit-marker.engaged { animation: combat-blink 0.5s infinite; }
+        .unit-marker.vehicle { border-radius: 3px; }
+
+        @keyframes combat-blink {
+            0%, 100% { box-shadow: 0 0 10px currentColor; }
+            50% { box-shadow: 0 0 25px currentColor, 0 0 35px currentColor; }
+        }
+
+        .objective-marker {
+            width: 24px;
+            height: 24px;
+            border: 3px solid #ffaa00;
+            border-radius: 50%;
+            background: rgba(255, 170, 0, 0.2);
+            animation: obj-pulse 2s infinite;
+        }
+
+        @keyframes obj-pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.6; }
+        }
+
+        .tactical-marker {
+            width: 16px;
+            height: 16px;
+            border: 2px solid;
+            opacity: 0.8;
+        }
+        .tactical-marker.defense { border-color: #00ff88; border-radius: 50%; background: rgba(0,255,136,0.2); }
+        .tactical-marker.overwatch { border-color: #ffff00; transform: rotate(45deg); background: rgba(255,255,0,0.2); }
+        .tactical-marker.lz { border-color: #00ffff; background: rgba(0,255,255,0.3); }
+
+        .location-label {
+            color: #aaa;
+            font-size: 11px;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px #000, -1px -1px 2px #000;
+            white-space: nowrap;
+        }
+
+        /* Grid coordinates display */
+        .grid-display {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(10, 10, 18, 0.9);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: monospace;
+            z-index: 1000;
+        }
+
+        /* Bottom Events */
+        .events-panel {
+            grid-column: 1 / -1;
+            background: #12121a;
+            border-radius: 8px;
+            border: 1px solid #2a2a3a;
+            padding: 10px 15px;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+
+        .events-header {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .event-item {
+            display: inline-block;
+            padding: 4px 10px;
+            margin: 2px 4px 2px 0;
+            border-radius: 12px;
+            font-size: 11px;
+            background: #1a1a2a;
+        }
+
+        .event-item.kill { background: #2a1a1a; color: #ff6666; }
+        .event-item.spawn { background: #1a2a1a; color: #66ff88; }
+        .event-item.objective { background: #2a2a1a; color: #ffcc66; }
+        .event-item.west-event { border-left: 3px solid #4488ff; }
+        .event-item.east-event { border-left: 3px solid #ff4444; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0a12; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #444; }
+
+        /* Map loading overlay */
+        .map-loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #666;
+            font-size: 14px;
+            z-index: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>War Room - AI Commander Dashboard</h1>
+        <div class="status-row">
+            <div class="status-indicator">
+                <div class="status-dot idle" id="status-dot"></div>
+                <span id="status-text">Connecting...</span>
+            </div>
+            <span id="map-name" style="color: #888; font-size: 12px;">--</span>
+            <span id="mission-time" style="color: #666; font-size: 12px;">00:00:00</span>
+        </div>
+    </div>
+
+    <div class="main-grid">
+        <!-- WEST Panel -->
+        <div class="side-panel west">
+            <div class="side-header west">BLUFOR Commander</div>
+            <div class="force-summary">
+                <div class="force-row">
+                    <span>Infantry</span>
+                    <span class="force-value west" id="west-infantry">0</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill west" id="west-infantry-bar" style="width: 0%"></div></div>
+                <div class="force-row">
+                    <span>Vehicles</span>
+                    <span class="force-value west" id="west-vehicles">0</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill west" id="west-vehicles-bar" style="width: 0%"></div></div>
+                <div class="force-row">
+                    <span>Engaged</span>
+                    <span class="force-value west" id="west-engaged">0</span>
+                </div>
+                <div class="force-row">
+                    <span>Casualties</span>
+                    <span class="force-value" style="color: #ff6666" id="west-casualties">0</span>
+                </div>
+                <div class="force-row">
+                    <span>Budget</span>
+                    <span class="force-value west" id="west-budget">--</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill green" id="west-budget-bar" style="width: 0%"></div></div>
+            </div>
+            <div class="log-container" id="west-log"></div>
+            <div class="chat-box">
+                <input type="text" class="chat-input" id="west-input"
+                       placeholder="Orders to BLUFOR..."
+                       onkeypress="if(event.key==='Enter') sendChat('WEST')">
+            </div>
+        </div>
+
+        <!-- Center Panel -->
+        <div class="center-panel">
+            <div class="stats-row">
+                <div class="stat-card">
+                    <div class="stat-label">BLUFOR</div>
+                    <div class="stat-value west" id="total-west">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">vs</div>
+                    <div class="stat-value" id="force-ratio">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">OPFOR</div>
+                    <div class="stat-value east" id="total-east">0</div>
+                </div>
+                <div class="stat-card highlight">
+                    <div class="stat-label">Objective</div>
+                    <div class="stat-value" id="obj-status">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Queue</div>
+                    <div class="stat-value" id="total-queue">0</div>
+                </div>
+            </div>
+
+            <div class="map-container">
+                <div class="map-header">
+                    <span>Tactical Map</span>
+                    <span id="obj-name">--</span>
+                </div>
+                <div id="leaflet-map">
+                    <div class="map-loading">Waiting for game connection...</div>
+                </div>
+                <div class="grid-display" id="grid-display">Grid: ---- - ----</div>
+            </div>
+        </div>
+
+        <!-- EAST Panel -->
+        <div class="side-panel east">
+            <div class="side-header east">OPFOR Commander</div>
+            <div class="force-summary">
+                <div class="force-row">
+                    <span>Infantry</span>
+                    <span class="force-value east" id="east-infantry">0</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill east" id="east-infantry-bar" style="width: 0%"></div></div>
+                <div class="force-row">
+                    <span>Vehicles</span>
+                    <span class="force-value east" id="east-vehicles">0</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill east" id="east-vehicles-bar" style="width: 0%"></div></div>
+                <div class="force-row">
+                    <span>Engaged</span>
+                    <span class="force-value east" id="east-engaged">0</span>
+                </div>
+                <div class="force-row">
+                    <span>Casualties</span>
+                    <span class="force-value" style="color: #ff6666" id="east-casualties">0</span>
+                </div>
+                <div class="force-row">
+                    <span>Budget</span>
+                    <span class="force-value east" id="east-budget">--</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill yellow" id="east-budget-bar" style="width: 0%"></div></div>
+            </div>
+            <div class="log-container" id="east-log"></div>
+            <div class="chat-box">
+                <input type="text" class="chat-input" id="east-input"
+                       placeholder="Orders to OPFOR..."
+                       onkeypress="if(event.key==='Enter') sendChat('EAST')">
+            </div>
+        </div>
+
+        <!-- Events Panel -->
+        <div class="events-panel">
+            <div class="events-header">Combat Events</div>
+            <div id="events-container">
+                <span class="event-item">Awaiting game connection...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const API_BASE = window.location.origin;
+        let lastGameState = null;
+        let leafletMap = null;
+        let currentWorldName = null;
+        let mapConfig = null;
+
+        // Layer groups for markers
+        let westUnitsLayer = null;
+        let eastUnitsLayer = null;
+        let objectiveLayer = null;
+        let tacticalLayer = null;
+        let locationsLayer = null;
+
+        // Map configurations cache
+        const mapConfigs = {};
+
+        // Known map configurations (fallback)
+        const KNOWN_MAPS = {
+            'altis': { worldSize: 30720, tileSize: 256, minZoom: 0, maxZoom: 6, factorX: 0.006839, factorY: 0.006836 },
+            'stratis': { worldSize: 8192, tileSize: 256, minZoom: 0, maxZoom: 5, factorX: 0.025635, factorY: 0.025635 },
+            'tanoa': { worldSize: 15360, tileSize: 256, minZoom: 0, maxZoom: 5, factorX: 0.013672, factorY: 0.013672 },
+            'malden': { worldSize: 12800, tileSize: 256, minZoom: 0, maxZoom: 5, factorX: 0.01640625, factorY: 0.01640625 },
+            'lythium': { worldSize: 20480, tileSize: 256, minZoom: 0, maxZoom: 6, factorX: 0.01025, factorY: 0.01025 },
+            'chernarus': { worldSize: 15360, tileSize: 256, minZoom: 0, maxZoom: 5, factorX: 0.013672, factorY: 0.013672 },
+            'chernarus_summer': { worldSize: 15360, tileSize: 256, minZoom: 0, maxZoom: 5, factorX: 0.013672, factorY: 0.013672 },
+            'takistan': { worldSize: 12800, tileSize: 256, minZoom: 0, maxZoom: 5, factorX: 0.01640625, factorY: 0.01640625 },
+            'vr': { worldSize: 8192, tileSize: 256, minZoom: 0, maxZoom: 4, factorX: 0.025635, factorY: 0.025635 }
+        };
+
+        // Create custom CRS for Arma 3 coordinates
+        function createArmaCRS(factorX, factorY, tileSize) {
+            return L.extend({}, L.CRS.Simple, {
+                projection: L.Projection.LonLat,
+                transformation: new L.Transformation(factorX, 0, -factorY, tileSize),
+                scale: function(zoom) { return Math.pow(2, zoom); },
+                zoom: function(scale) { return Math.log(scale) / Math.LN2; },
+                distance: function(latlng1, latlng2) {
+                    var dx = latlng2.lng - latlng1.lng;
+                    var dy = latlng2.lat - latlng1.lat;
+                    return Math.sqrt(dx * dx + dy * dy);
+                },
+                infinite: true
+            });
+        }
+
+        // Convert Arma coords to Leaflet LatLng
+        function armaToLatLng(x, y) {
+            // In Arma: X is easting, Y is northing
+            // In Leaflet with our CRS: lng = x, lat = y
+            return L.latLng(y, x);
+        }
+
+        // Format grid coordinates
+        function formatGrid(x, y, precision = 4) {
+            const pad = (num) => {
+                if (num <= 0) return '0'.repeat(precision);
+                const str = '00000' + Math.floor(num);
+                return str.substr(str.length - 5, precision);
+            };
+            return `${pad(x)} - ${pad(y)}`;
+        }
+
+        // Initialize or update map for a world
+        async function initializeMap(worldName, worldSize) {
+            const mapKey = worldName.toLowerCase();
+
+            // Check if we already have this map loaded
+            if (currentWorldName === mapKey && leafletMap) {
+                return;
+            }
+
+            // Remove old map if exists
+            if (leafletMap) {
+                leafletMap.remove();
+                leafletMap = null;
+            }
+
+            // Clear loading message
+            document.querySelector('.map-loading')?.remove();
+
+            // Get or create config
+            let config = KNOWN_MAPS[mapKey];
+            if (!config) {
+                // Default config based on worldSize
+                const factor = 256 / worldSize;
+                config = {
+                    worldSize: worldSize,
+                    tileSize: 256,
+                    minZoom: 0,
+                    maxZoom: 6,
+                    factorX: factor,
+                    factorY: factor
+                };
+            }
+            config.worldSize = worldSize || config.worldSize;
+
+            // Create CRS
+            const crs = createArmaCRS(config.factorX, config.factorY, config.tileSize);
+
+            // Calculate center and bounds
+            const center = armaToLatLng(config.worldSize / 2, config.worldSize / 2);
+            const bounds = L.latLngBounds(
+                armaToLatLng(0, 0),
+                armaToLatLng(config.worldSize, config.worldSize)
+            );
+
+            // Create map
+            leafletMap = L.map('leaflet-map', {
+                crs: crs,
+                center: center,
+                zoom: 2,
+                minZoom: config.minZoom,
+                maxZoom: config.maxZoom,
+                maxBounds: bounds.pad(0.1),
+                zoomControl: true
+            });
+
+            // Add tile layer from Arma3Map
+            const tileUrl = `https://jetelain.github.io/Arma3Map/maps/${mapKey}/{z}/{x}/{y}.png`;
+            L.tileLayer(tileUrl, {
+                minZoom: config.minZoom,
+                maxZoom: config.maxZoom,
+                tileSize: config.tileSize,
+                noWrap: true,
+                bounds: bounds,
+                errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+            }).addTo(leafletMap);
+
+            // Create layer groups
+            westUnitsLayer = L.layerGroup().addTo(leafletMap);
+            eastUnitsLayer = L.layerGroup().addTo(leafletMap);
+            objectiveLayer = L.layerGroup().addTo(leafletMap);
+            tacticalLayer = L.layerGroup().addTo(leafletMap);
+            locationsLayer = L.layerGroup().addTo(leafletMap);
+
+            // Mouse move handler for grid display
+            leafletMap.on('mousemove', (e) => {
+                const grid = formatGrid(e.latlng.lng, e.latlng.lat);
+                document.getElementById('grid-display').textContent = `Grid: ${grid}`;
+            });
+
+            currentWorldName = mapKey;
+            mapConfig = config;
+
+            console.log(`Map initialized: ${mapKey}, worldSize: ${config.worldSize}`);
+        }
+
+        // Create unit marker
+        function createUnitMarker(x, y, side, inCombat, isVehicle, tooltip) {
+            const latlng = armaToLatLng(x, y);
+            const size = isVehicle ? 14 : 10;
+
+            const icon = L.divIcon({
+                className: `unit-marker ${side.toLowerCase()} ${inCombat ? 'engaged' : ''} ${isVehicle ? 'vehicle' : ''}`,
+                iconSize: [size, size],
+                iconAnchor: [size/2, size/2]
+            });
+
+            const marker = L.marker(latlng, { icon: icon });
+            if (tooltip) marker.bindTooltip(tooltip, { permanent: false, direction: 'top' });
+            return marker;
+        }
+
+        // Create objective marker
+        function createObjectiveMarker(x, y, name) {
+            const latlng = armaToLatLng(x, y);
+            const icon = L.divIcon({
+                className: 'objective-marker',
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+            });
+            const marker = L.marker(latlng, { icon: icon });
+            if (name) marker.bindTooltip(name, { permanent: true, direction: 'top', className: 'location-label' });
+            return marker;
+        }
+
+        // Create tactical marker
+        function createTacticalMarker(x, y, type, score) {
+            const latlng = armaToLatLng(x, y);
+            const icon = L.divIcon({
+                className: `tactical-marker ${type}`,
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
+            });
+            const marker = L.marker(latlng, { icon: icon });
+            marker.bindTooltip(`${type} (${score.toFixed(1)})`, { permanent: false });
+            return marker;
+        }
+
+        // Update map markers
+        function updateMapMarkers(gameState) {
+            if (!leafletMap || !gameState) return;
+
+            // Clear existing markers
+            westUnitsLayer.clearLayers();
+            eastUnitsLayer.clearLayers();
+            objectiveLayer.clearLayers();
+            tacticalLayer.clearLayers();
+            locationsLayer.clearLayers();
+
+            // Draw objective
+            if (gameState.battleObjective?.position) {
+                const pos = gameState.battleObjective.position;
+                const marker = createObjectiveMarker(pos.x, pos.y, gameState.battleObjective.name);
+                objectiveLayer.addLayer(marker);
+
+                // Center map on objective if first time
+                if (!lastGameState) {
+                    leafletMap.setView(armaToLatLng(pos.x, pos.y), 3);
+                }
+            }
+
+            // Draw WEST groups
+            (gameState.groupStatus?.WEST || []).forEach(grp => {
+                if (grp.position && grp.alive > 0) {
+                    const hasVehicle = grp.vehicles?.length > 0;
+                    const marker = createUnitMarker(
+                        grp.position.x, grp.position.y,
+                        'west', grp.inCombat, hasVehicle,
+                        `${grp.groupId}: ${grp.alive} units`
+                    );
+                    westUnitsLayer.addLayer(marker);
+                }
+            });
+
+            // Draw EAST groups
+            (gameState.groupStatus?.EAST || []).forEach(grp => {
+                if (grp.position && grp.alive > 0) {
+                    const hasVehicle = grp.vehicles?.length > 0;
+                    const marker = createUnitMarker(
+                        grp.position.x, grp.position.y,
+                        'east', grp.inCombat, hasVehicle,
+                        `${grp.groupId}: ${grp.alive} units`
+                    );
+                    eastUnitsLayer.addLayer(marker);
+                }
+            });
+
+            // Draw tactical positions
+            const tactical = gameState.terrainData?.analysis?.tacticalPositions || {};
+
+            (tactical.defensivePositions || []).forEach(pos => {
+                if (pos.position && pos.score > 0) {
+                    const marker = createTacticalMarker(pos.position.x, pos.position.y, 'defense', pos.score);
+                    tacticalLayer.addLayer(marker);
+                }
+            });
+
+            (tactical.overwatchPositions || []).forEach(pos => {
+                if (pos.position && pos.score > 0) {
+                    const marker = createTacticalMarker(pos.position.x, pos.position.y, 'overwatch', pos.score);
+                    tacticalLayer.addLayer(marker);
+                }
+            });
+
+            (tactical.landingZones || []).forEach(pos => {
+                if (pos.position && pos.score > 0) {
+                    const marker = createTacticalMarker(pos.position.x, pos.position.y, 'lz', pos.score);
+                    tacticalLayer.addLayer(marker);
+                }
+            });
+
+            // Draw location labels
+            (gameState.terrainData?.nearbyLocations || []).slice(0, 8).forEach(loc => {
+                if (loc.position) {
+                    const latlng = armaToLatLng(loc.position.x, loc.position.y);
+                    const label = L.marker(latlng, {
+                        icon: L.divIcon({
+                            className: 'location-label',
+                            html: loc.name,
+                            iconSize: [100, 20],
+                            iconAnchor: [50, 10]
+                        })
+                    });
+                    locationsLayer.addLayer(label);
+                }
+            });
+        }
+
+        function formatTime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+        }
+
+        function addLog(side, type, content) {
+            const log = document.getElementById(`${side.toLowerCase()}-log`);
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `<div class="log-time">${new Date().toLocaleTimeString()}</div>${content}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+            while (log.children.length > 50) log.removeChild(log.firstChild);
+        }
+
+        function updateCombatEvents(events) {
+            const container = document.getElementById('events-container');
+            container.innerHTML = '';
+            if (!events || events.length === 0) {
+                container.innerHTML = '<span class="event-item">No recent combat events</span>';
+                return;
+            }
+            events.slice(0, 15).forEach(event => {
+                const span = document.createElement('span');
+                const typeClass = event.type === 'casualty' ? 'kill' :
+                                  event.type === 'spawn' ? 'spawn' :
+                                  event.type === 'objective_reached' ? 'objective' : '';
+                const sideClass = event.side === 'WEST' ? 'west-event' :
+                                  event.side === 'EAST' ? 'east-event' : '';
+                span.className = `event-item ${typeClass} ${sideClass}`;
+                span.textContent = event.message;
+                span.title = new Date(event.timestamp).toLocaleTimeString();
+                container.appendChild(span);
+            });
+        }
+
+        async function sendChat(side) {
+            const input = document.getElementById(`${side.toLowerCase()}-input`);
+            const message = input.value.trim();
+            if (!message) return;
+            addLog(side, 'player', `YOU: ${message}`);
+            input.value = '';
+            try {
+                const response = await fetch(`${API_BASE}/api/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message, side, playerName: 'War Room' })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    addLog(side, 'response', data.response);
+                    if (data.actionQueued) addLog(side, 'action', 'Action queued for execution');
+                } else {
+                    addLog(side, 'error', data.error || 'Failed');
+                }
+            } catch (e) {
+                addLog(side, 'error', 'Connection error');
+            }
+        }
+
+        function updateDashboard(gameState) {
+            // Unit counts
+            const westCount = gameState.unitCounts?.BLUFOR || 0;
+            const eastCount = gameState.unitCounts?.OPFOR || 0;
+            const maxUnits = Math.max(westCount, eastCount, 1);
+
+            document.getElementById('total-west').textContent = westCount;
+            document.getElementById('total-east').textContent = eastCount;
+            document.getElementById('west-infantry').textContent = westCount;
+            document.getElementById('east-infantry').textContent = eastCount;
+            document.getElementById('west-infantry-bar').style.width = `${(westCount / maxUnits) * 100}%`;
+            document.getElementById('east-infantry-bar').style.width = `${(eastCount / maxUnits) * 100}%`;
+
+            // Force ratio
+            if (westCount > 0 && eastCount > 0) {
+                const ratio = westCount / eastCount;
+                document.getElementById('force-ratio').textContent = ratio > 1 ?
+                    `${ratio.toFixed(1)}:1` : `1:${(1/ratio).toFixed(1)}`;
+            }
+
+            // Vehicles
+            const westVeh = gameState.vehicleStatus?.WEST?.length || 0;
+            const eastVeh = gameState.vehicleStatus?.EAST?.length || 0;
+            document.getElementById('west-vehicles').textContent = westVeh;
+            document.getElementById('east-vehicles').textContent = eastVeh;
+
+            // Combat summary
+            const combat = gameState.combatSummary || {};
+            document.getElementById('west-engaged').textContent = combat.westGroupsEngaged || 0;
+            document.getElementById('east-engaged').textContent = combat.eastGroupsEngaged || 0;
+
+            // Casualties
+            const casualties = gameState.casualtyTracking || {};
+            document.getElementById('west-casualties').textContent = casualties.WEST || 0;
+            document.getElementById('east-casualties').textContent = casualties.EAST || 0;
+
+            // Objective
+            const obj = gameState.battleObjective || {};
+            document.getElementById('obj-name').textContent = obj.name || '--';
+            const objStatus = document.getElementById('obj-status');
+            objStatus.textContent = obj.controlStatus || '--';
+            objStatus.className = `stat-value ${(obj.controlStatus || '').toLowerCase()}`;
+
+            // Mission info
+            const worldName = gameState.terrainData?.worldName || gameState.missionContext?.worldName || '--';
+            document.getElementById('map-name').textContent = worldName;
+            document.getElementById('mission-time').textContent = formatTime(gameState.missionContext?.elapsedTime || 0);
+
+            // Initialize/update Leaflet map if we have world info
+            if (worldName && worldName !== '--') {
+                const worldSize = gameState.terrainData?.worldSize || 30720;
+                initializeMap(worldName, worldSize);
+                updateMapMarkers(gameState);
+            }
+        }
+
+        async function pollStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/status`);
+                const data = await response.json();
+
+                // Update status
+                const dot = document.getElementById('status-dot');
+                const text = document.getElementById('status-text');
+                dot.className = `status-dot ${data.connectionState || 'idle'}`;
+                text.textContent = data.connectionState === 'connected' ? 'LIVE' :
+                                   data.connectionState === 'stale' ? 'STALE' : 'OFFLINE';
+
+                // Queue count
+                document.getElementById('total-queue').textContent =
+                    (data.westQueueLength || 0) + (data.eastQueueLength || 0);
+
+                // Budgets
+                if (data.budgets) {
+                    const maxBudget = 150;
+                    document.getElementById('west-budget').textContent = data.budgets.west || 0;
+                    document.getElementById('east-budget').textContent = data.budgets.east || 0;
+                    document.getElementById('west-budget-bar').style.width = `${((data.budgets.west || 0) / maxBudget) * 100}%`;
+                    document.getElementById('east-budget-bar').style.width = `${((data.budgets.east || 0) / maxBudget) * 100}%`;
+                }
+
+                // Game state
+                if (data.gameState) {
+                    updateDashboard(data.gameState);
+                    lastGameState = data.gameState;
+                }
+
+                // Combat events
+                if (data.combatEvents) {
+                    updateCombatEvents(data.combatEvents);
+                }
+
+            } catch (error) {
+                document.getElementById('status-dot').className = 'status-dot lost';
+                document.getElementById('status-text').textContent = 'ERROR';
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            pollStatus();
+            setInterval(pollStatus, 2000);
+        });
+    </script>
+</body>
+</html>

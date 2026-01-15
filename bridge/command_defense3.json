@@ -1,0 +1,4 @@
+{
+  "sqf": "private _loc = (nearestLocations [[worldSize/2, worldSize/2, 0], ['NameCity','NameCityCapital','NameVillage'], 50000]) select {(toLower (text _x)) find 'mazem' >= 0}; if (count _loc == 0) exitWith {}; private _cityPos = position (_loc select 0); systemChat '[OPFOR Command] Deploying static weapons!'; private _statics = ['CUP_O_KORD_RU','CUP_O_KORD_RU','CUP_O_AGS_RU','CUP_O_DSHKM_RU','CUP_O_DSHKM_RU','CUP_O_Metis_RU','CUP_O_Kornet_RU']; { private _spawnPos = [(_cityPos select 0) + (random 250) - 125, (_cityPos select 1) + (random 250) - 125, 0]; private _grp = createGroup EAST; private _static = createVehicle [_x, _spawnPos, [], 0, 'NONE']; private _gunner = _grp createUnit ['CUP_O_RU_Soldier_M_EMR', _spawnPos, [], 2, 'NONE']; _gunner moveInGunner _static; _grp setBehaviour 'COMBAT'; } forEach _statics; systemChat '[OPFOR] Static weapons emplaced!';",
+  "description": "Spawn static weapons at Mazemovo"
+}

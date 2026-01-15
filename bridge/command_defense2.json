@@ -1,0 +1,4 @@
+{
+  "sqf": "private _loc = (nearestLocations [[worldSize/2, worldSize/2, 0], ['NameCity','NameCityCapital','NameVillage'], 50000]) select {(toLower (text _x)) find 'mazem' >= 0}; if (count _loc == 0) exitWith {}; private _cityPos = position (_loc select 0); systemChat '[OPFOR Command] Deploying anti-air defenses!'; private _aa = ['CUP_O_2S6_RU','CUP_O_ZSU23_Afghan_RU','CUP_O_Igla_AA_pod_RU','CUP_O_Igla_AA_pod_RU']; { private _spawnPos = [(_cityPos select 0) + (random 300) - 150, (_cityPos select 1) + (random 300) - 150, 0]; private _grp = createGroup EAST; private _veh = createVehicle [_x, _spawnPos, [], 0, 'NONE']; createVehicleCrew _veh; (crew _veh) joinSilent _grp; _grp setBehaviour 'AWARE'; _grp setCombatMode 'RED'; } forEach _aa; systemChat '[OPFOR] Air defense network active!';",
+  "description": "Spawn AA at Mazemovo"
+}

@@ -55,6 +55,15 @@ ${sqf}
   }
 
   /**
+   * Full sanitization pipeline for SQF code
+   */
+  sanitize(sqf: string): string {
+    let sanitized = this.removeInlineComments(sqf);
+    sanitized = this.wrapInSafeContext(sanitized);
+    return sanitized;
+  }
+
+  /**
    * Add execution metadata comments
    */
   addMetadata(sqf: string, metadata: { timestamp: number; action: string; reasoning?: string }): string {

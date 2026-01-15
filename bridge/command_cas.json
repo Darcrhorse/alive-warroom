@@ -1,0 +1,4 @@
+{
+  "sqf": "private _targetPos = getPos (allPlayers select 0); ['Viper 1-1, flight of two F-16s inbound for CAS on your position!'] remoteExec ['systemChat', 0]; for '_i' from 1 to 2 do { private _spawnPos = [(_targetPos select 0) - 3000 + (random 500), (_targetPos select 1) - 3000 + (random 500), 500]; private _grp = createGroup WEST; private _jet = createVehicle ['FIR_F16C', _spawnPos, [], 0, 'FLY']; createVehicleCrew _jet; (crew _jet) joinSilent _grp; _jet flyInHeight 300; private _wp = _grp addWaypoint [_targetPos, 0]; _wp setWaypointType 'SAD'; _wp setWaypointCombatMode 'RED'; }; ['Viper 1-1, tally target. Weapons hot!'] remoteExec ['systemChat', 0];",
+  "description": "F-16 CAS on player position"
+}

@@ -22,10 +22,25 @@ export class GameStateManager {
    */
   updateState(state: GameState): void {
     this.currentState = state;
+
+    // Extract events from game state and add to history
+    if (state.recentEvents && Array.isArray(state.recentEvents)) {
+      for (const event of state.recentEvents) {
+        // Avoid duplicates by checking if event already exists (by timestamp + type)
+        const isDuplicate = this.history.events.some(
+          e => e.timestamp === event.timestamp && e.type === event.type
+        );
+        if (!isDuplicate) {
+          this.addEvent(event);
+          logger.info('Event extracted from game state', { type: event.type, data: event.data });
+        }
+      }
+    }
+
     logger.debug('Game state updated', {
-      players: state.players.length,
-      enemies: state.enemyUnits.length,
-      objectives: state.objectives.length
+      players: state.players?.length ?? 0,
+      enemies: state.unitCounts?.OPFOR ?? state.enemyUnits?.length ?? 0,
+      objectives: state.objectives?.length ?? 0
     });
   }
 
@@ -87,7 +102,7 @@ export class GameStateManager {
    * Check if state is valid
    */
   isStateValid(): boolean {
-    return this.currentState !== null && this.currentState.players.length > 0;
+    return this.currentState !== null && (this.currentState.players?.length ?? 0) > 0;
   }
 }
 

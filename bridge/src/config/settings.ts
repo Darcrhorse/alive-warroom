@@ -9,12 +9,28 @@ dotenv.config();
 
 export const defaultConfig: Config = {
   llm: {
-    provider: (process.env.LLM_PROVIDER as any) || 'openai',
+    // MODE TOGGLE: 'single' = one AI controls both, 'dual' = two AIs battle, 'disabled' = no AI
+    mode: (process.env.AI_MODE as 'single' | 'dual' | 'disabled') || 'single',
+
+    // Shared settings (single mode or fallback)
+    provider: (process.env.LLM_PROVIDER as any) || 'claude',
     apiKey: process.env.OPENAI_API_KEY || process.env.CLAUDE_API_KEY,
-    model: process.env.OPENAI_MODEL || 'gpt-4',
+    model: process.env.CLAUDE_MODEL || process.env.OPENAI_MODEL || 'claude-sonnet-4-20250514',
     endpoint: process.env.OLLAMA_ENDPOINT,
-    maxTokens: 2000,
-    temperature: 0.7
+    maxTokens: 16384,  // Doubled from 8192 for complex multi-phase operations
+    temperature: 0.7,
+
+    // DUAL MODE: EAST Commander (OPFOR) config
+    east: {
+      apiKey: process.env.CLAUDE_EAST_API_KEY || process.env.CLAUDE_API_KEY,
+      model: process.env.CLAUDE_EAST_MODEL || 'claude-sonnet-4-20250514',
+    },
+
+    // DUAL MODE: WEST Commander (BLUFOR) config
+    west: {
+      apiKey: process.env.CLAUDE_WEST_API_KEY || process.env.CLAUDE_API_KEY,
+      model: process.env.CLAUDE_WEST_MODEL || 'claude-sonnet-4-20250514',
+    }
   },
   gm: {
     updateInterval: parseInt(process.env.GM_UPDATE_INTERVAL || '30'),
