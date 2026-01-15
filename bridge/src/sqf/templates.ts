@@ -31,6 +31,15 @@ export interface CreateObjectiveParams {
   assignTo?: string[];
 }
 
+export interface SpawnQRFParams {
+  position: Position;
+  side: 'EAST' | 'WEST' | 'INDEPENDENT' | 'CIVILIAN';
+  unitCount: number;
+  faction: string;
+  targetPosition?: Position;
+  skill?: number;
+}
+
 export class SQFTemplates {
   /**
    * Generate SQF to spawn infantry group
