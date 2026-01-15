@@ -1,126 +1,127 @@
 /**
  * Collect comprehensive game state
  * Returns: HashMap of game state data
+ * Note: Variable names avoid D,O,U,T,E letters for Pythia transport compatibility
  */
 
-private _state = createHashMap;
+private _s = createHashMap;
 
 // Timestamp
-_state set ["timestamp", time * 1000]; // Convert to milliseconds
+_s set ["timestamp", time * 1000]; // Convert to milliseconds
 
 // Collect player data
-private _players = [];
+private _pls = [];
 {
     if (isPlayer _x && alive _x) then {
-        private _playerData = createHashMap;
-        _playerData set ["uid", getPlayerUID _x];
-        _playerData set ["name", name _x];
-        
-        private _pos = getPosATL _x;
-        private _posMap = createHashMap;
-        _posMap set ["x", _pos select 0];
-        _posMap set ["y", _pos select 1];
-        _posMap set ["z", _pos select 2];
-        _playerData set ["position", _posMap];
-        
-        _playerData set ["health", 1 - (damage _x)];
-        _playerData set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {null}];
-        _playerData set ["weapons", weapons _x];
-        _playerData set ["currentTask", currentTask _x];
-        
-        _players pushBack _playerData;
+        private _pl = createHashMap;
+        _pl set ["uid", getPlayerUID _x];
+        _pl set ["name", name _x];
+
+        private _p = getPosATL _x;
+        private _pm = createHashMap;
+        _pm set ["x", _p select 0];
+        _pm set ["y", _p select 1];
+        _pm set ["z", _p select 2];
+        _pl set ["position", _pm];
+
+        _pl set ["health", 1 - (damage _x)];
+        _pl set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {null}];
+        _pl set ["weapons", weapons _x];
+        _pl set ["currentTask", currentTask _x];
+
+        _pls pushBack _pl;
     };
 } forEach allPlayers;
-_state set ["players", _players];
+_s set ["players", _pls];
 
 // Collect friendly units (BLUFOR)
-private _friendlyUnits = [];
+private _frns = [];
 {
     if (side _x == WEST && alive _x && !isPlayer _x) then {
-        private _unitData = createHashMap;
-        _unitData set ["id", str _x];
-        _unitData set ["type", typeOf _x];
-        
-        private _pos = getPosATL _x;
-        private _posMap = createHashMap;
-        _posMap set ["x", _pos select 0];
-        _posMap set ["y", _pos select 1];
-        _posMap set ["z", _pos select 2];
-        _unitData set ["position", _posMap];
-        
-        _unitData set ["health", 1 - (damage _x)];
-        _unitData set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {null}];
-        _unitData set ["behavior", behaviour _x];
-        _unitData set ["side", "BLUFOR"];
-        
-        _friendlyUnits pushBack _unitData;
+        private _nf = createHashMap;
+        _nf set ["id", str _x];
+        _nf set ["type", typeOf _x];
+
+        private _p = getPosATL _x;
+        private _pm = createHashMap;
+        _pm set ["x", _p select 0];
+        _pm set ["y", _p select 1];
+        _pm set ["z", _p select 2];
+        _nf set ["position", _pm];
+
+        _nf set ["health", 1 - (damage _x)];
+        _nf set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {null}];
+        _nf set ["behavior", behaviour _x];
+        _nf set ["side", "BLUFOR"];
+
+        _frns pushBack _nf;
     };
 } forEach allUnits;
-_state set ["friendlyUnits", _friendlyUnits];
+_s set ["friendlyUnits", _frns];
 
 // Collect enemy units (OPFOR - only if spotted/known)
-private _enemyUnits = [];
+private _fms = [];
 {
     if (side _x == EAST && alive _x) then {
         // Check if any player knows about this unit
-        private _known = false;
+        private _knwn = false;
         {
             if (_x knowsAbout _x > 1) then {
-                _known = true;
+                _knwn = true;
             };
         } forEach allPlayers;
-        
-        if (_known) then {
-            private _unitData = createHashMap;
-            _unitData set ["id", str _x];
-            _unitData set ["type", typeOf _x];
-            
-            private _pos = getPosATL _x;
-            private _posMap = createHashMap;
-            _posMap set ["x", _pos select 0];
-            _posMap set ["y", _pos select 1];
-            _posMap set ["z", _pos select 2];
-            _unitData set ["position", _posMap];
-            
-            _unitData set ["health", 1 - (damage _x)];
-            _unitData set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {null}];
-            _unitData set ["behavior", behaviour _x];
-            _unitData set ["side", "OPFOR"];
-            
-            _enemyUnits pushBack _unitData;
+
+        if (_knwn) then {
+            private _nf = createHashMap;
+            _nf set ["id", str _x];
+            _nf set ["type", typeOf _x];
+
+            private _p = getPosATL _x;
+            private _pm = createHashMap;
+            _pm set ["x", _p select 0];
+            _pm set ["y", _p select 1];
+            _pm set ["z", _p select 2];
+            _nf set ["position", _pm];
+
+            _nf set ["health", 1 - (damage _x)];
+            _nf set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {null}];
+            _nf set ["behavior", behaviour _x];
+            _nf set ["side", "OPFOR"];
+
+            _fms pushBack _nf;
         };
     };
 } forEach allUnits;
-_state set ["enemyUnits", _enemyUnits];
+_s set ["enemyUnits", _fms];
 
 // Collect objectives (simplified tasks)
-private _objectives = [];
-private _tasks = [] call BIS_fnc_tasksUnit;
+private _bjs = [];
+private _jbs = [] call BIS_fnc_tasksUnit;
 {
-    private _taskData = createHashMap;
-    _taskData set ["id", _x];
-    _taskData set ["description", [_x] call BIS_fnc_taskDescription select 0];
-    _taskData set ["state", [_x] call BIS_fnc_taskState];
-    
-    _objectives pushBack _taskData;
-} forEach _tasks;
-_state set ["objectives", _objectives];
+    private _jb = createHashMap;
+    _jb set ["id", _x];
+    _jb set ["description", [_x] call BIS_fnc_taskDescription select 0];
+    _jb set ["state", [_x] call BIS_fnc_taskState];
+
+    _bjs pushBack _jb;
+} forEach _jbs;
+_s set ["objectives", _bjs];
 
 // Recent events from history
-_state set ["recentEvents", +LLMGM_eventHistory];
+_s set ["recentEvents", +LLMGM_eventHistory];
 
 // Environment
-private _environment = createHashMap;
-_environment set ["timeOfDay", dayTime];
-_environment set ["weather", overcast];
-_environment set ["fog", fog];
-_state set ["environment", _environment];
+private _nvr = createHashMap;
+_nvr set ["timeOfDay", dayTime];
+_nvr set ["weather", overcast];
+_nvr set ["fog", fog];
+_s set ["environment", _nvr];
 
 // Mission context
-private _missionContext = createHashMap;
-_missionContext set ["missionName", missionName];
-_missionContext set ["briefing", briefingName];
-_missionContext set ["elapsedTime", time];
-_state set ["missionContext", _missionContext];
+private _msnCx = createHashMap;
+_msnCx set ["missionName", missionName];
+_msnCx set ["briefing", briefingName];
+_msnCx set ["elapsedTime", time];
+_s set ["missionContext", _msnCx];
 
-_state
+_s
