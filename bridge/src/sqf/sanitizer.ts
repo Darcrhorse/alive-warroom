@@ -20,6 +20,46 @@ export class SQFSanitizer {
   }
 
   /**
+   * Convert double quotes to single quotes in SQF code
+   * Handles nested quotes by doubling single quotes
+   */
+  convertQuotes(sqf: string): string {
+    // First, double any existing single quotes within double-quoted strings
+    // Then replace double quotes with single quotes
+    let result = '';
+    let inString = false;
+    let i = 0;
+
+    while (i < sqf.length) {
+      const char = sqf[i];
+
+      if (char === '"') {
+        // Check for escaped double quote ("")
+        if (i + 1 < sqf.length && sqf[i + 1] === '"') {
+          // Escaped double quote inside a string - convert to doubled single quote
+          result += "''";
+          i += 2;
+          continue;
+        }
+
+        // Toggle string state and convert to single quote
+        inString = !inString;
+        result += "'";
+        i++;
+      } else if (char === "'" && inString) {
+        // Single quote inside a string needs to be doubled
+        result += "''";
+        i++;
+      } else {
+        result += char;
+        i++;
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Remove potentially dangerous inline comments
    */
   removeInlineComments(sqf: string): string {
@@ -44,14 +84,29 @@ export class SQFSanitizer {
    */
   wrapInSafeContext(sqf: string): string {
     // Wrap in try-catch equivalent for SQF
+    // Note: Use single quotes to match quote conversion pipeline
     return `
 // LLM-Generated Code - Auto-wrapped for safety
 try {
 ${sqf}
 } catch {
-  diag_log format ["[LLMGM] Error executing generated SQF: %1", _exception];
+  diag_log format ['[LLMGM] Error executing generated SQF: %1', _exception];
 };
 `.trim();
+  }
+
+  /**
+   * Full sanitization pipeline for SQF code
+   * Applies all sanitization steps in the correct order
+   */
+  sanitize(sqf: string): string {
+    // Step 1: Convert double quotes to single quotes (FIRST - before any other transforms)
+    let sanitized = this.convertQuotes(sqf);
+    // Step 2: Remove inline comments
+    sanitized = this.removeInlineComments(sanitized);
+    // Step 3: Wrap in safe execution context
+    sanitized = this.wrapInSafeContext(sanitized);
+    return sanitized;
   }
 
   /**

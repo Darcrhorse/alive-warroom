@@ -1,0 +1,34 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read(./**)",
+      "Write(./**)",
+      "Edit(./**)",
+      "Glob(./**)",
+      "Grep(./**)",
+      "Read(F:\\alive-warroom\\.auto-claude\\worktrees\\tasks\\003-current-architecture/**)",
+      "Write(F:\\alive-warroom\\.auto-claude\\worktrees\\tasks\\003-current-architecture/**)",
+      "Edit(F:\\alive-warroom\\.auto-claude\\worktrees\\tasks\\003-current-architecture/**)",
+      "Glob(F:\\alive-warroom\\.auto-claude\\worktrees\\tasks\\003-current-architecture/**)",
+      "Grep(F:\\alive-warroom\\.auto-claude\\worktrees\\tasks\\003-current-architecture/**)",
+      "Read(F:\\alive-warroom\\.auto-claude\\worktrees\\tasks\\003-current-architecture\\.auto-claude\\specs\\003-current-architecture/**)",
+      "Write(F:\\alive-warroom\\.auto-claude\\worktrees\\tasks\\003-current-architecture\\.auto-claude\\specs\\003-current-architecture/**)",
+      "Edit(F:\\alive-warroom\\.auto-claude\\worktrees\\tasks\\003-current-architecture\\.auto-claude\\specs\\003-current-architecture/**)",
+      "Read(F:\\alive-warroom\\.auto-claude/**)",
+      "Write(F:\\alive-warroom\\.auto-claude/**)",
+      "Edit(F:\\alive-warroom\\.auto-claude/**)",
+      "Glob(F:\\alive-warroom\\.auto-claude/**)",
+      "Grep(F:\\alive-warroom\\.auto-claude/**)",
+      "Bash(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "mcp__context7__resolve-library-id(*)",
+      "mcp__context7__get-library-docs(*)"
+    ]
+  }
+}

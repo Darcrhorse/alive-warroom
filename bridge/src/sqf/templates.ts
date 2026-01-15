@@ -53,19 +53,19 @@ private _unitTypes = ${JSON.stringify(unitTypes)};
 private _group = createGroup ${side};
 
 {
-  private _unit = _group createUnit [_x, _spawnPos, [], 0, "FORM"];
+  private _unit = _group createUnit [_x, _spawnPos, [], 0, 'FORM'];
   _unit setSkill ${skill};
 } forEach _unitTypes;
 
 // Set group behavior
-_group setBehaviour "${behavior}";
-_group setCombatMode "${combatMode}";
+_group setBehaviour '${behavior}';
+_group setCombatMode '${combatMode}';
 
 // Add patrol waypoints
 [_group, _spawnPos, ${patrolRadius}] call BIS_fnc_taskPatrol;
 
 // Store group reference for tracking
-missionNamespace setVariable ["LLMGM_lastSpawnedGroup", _group];
+missionNamespace setVariable ['LLMGM_lastSpawnedGroup', _group];
 _group
 `.trim();
   }
@@ -85,20 +85,20 @@ _group
     return `
 // Spawn vehicle
 private _spawnPos = [${position.x}, ${position.y}, ${position.z}];
-private _vehicle = createVehicle ["${vehicleType}", _spawnPos, [], 0, "NONE"];
+private _vehicle = createVehicle ['${vehicleType}', _spawnPos, [], 0, 'NONE'];
 
 ${crew ? `
 // Add crew
 private _group = createVehicleCrew _vehicle;
-_group setBehaviour "AWARE";
-_group setCombatMode "YELLOW";
+_group setBehaviour 'AWARE';
+_group setCombatMode 'YELLOW';
 {
   _x setSkill ${crewSkill};
 } forEach units _group;
 ` : ''}
 
 // Store vehicle reference
-missionNamespace setVariable ["LLMGM_lastSpawnedVehicle", _vehicle];
+missionNamespace setVariable ['LLMGM_lastSpawnedVehicle', _vehicle];
 _vehicle
 `.trim();
   }
@@ -120,25 +120,25 @@ _vehicle
 
     return `
 // Create task/objective
-private _taskId = "${taskId}";
-private _taskTitle = "${title}";
-private _taskDescription = "${description}";
+private _taskId = '${taskId}';
+private _taskTitle = '${title}';
+private _taskDescription = '${description}';
 private _taskPos = [${position.x}, ${position.y}, ${position.z}];
-private _taskType = "${type}";
+private _taskType = '${type}';
 
 [
   ${assignToStr},
   _taskId,
-  [_taskDescription, _taskTitle, ""],
+  [_taskDescription, _taskTitle, ''],
   _taskPos,
-  "CREATED",
+  'CREATED',
   1,
   true,
   _taskType
 ] call BIS_fnc_taskCreate;
 
 // Store task reference
-missionNamespace setVariable ["LLMGM_lastCreatedTask", _taskId];
+missionNamespace setVariable ['LLMGM_lastCreatedTask', _taskId];
 _taskId
 `.trim();
   }
@@ -149,7 +149,7 @@ _taskId
   sendRadioMessage(message: string, sender: string = 'HQ'): string {
     return `
 // Send radio message
-[${sender}, "${message}"] remoteExec ["sideChat", 0];
+[${sender}, '${message}'] remoteExec ['sideChat', 0];
 `.trim();
   }
 
