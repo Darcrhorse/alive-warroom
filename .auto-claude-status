@@ -1,0 +1,25 @@
+{
+  "active": true,
+  "spec": "003-current-architecture",
+  "state": "building",
+  "subtasks": {
+    "completed": 1,
+    "total": 10,
+    "in_progress": 1,
+    "failed": 0
+  },
+  "phase": {
+    "current": "Quote Conversion Sanitizer",
+    "id": null,
+    "total": 2
+  },
+  "workers": {
+    "active": 0,
+    "max": 1
+  },
+  "session": {
+    "number": 2,
+    "started_at": "2026-01-14T22:21:45.668788"
+  },
+  "last_update": "2026-01-14T22:24:15.834207"
+}

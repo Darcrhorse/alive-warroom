@@ -95,6 +95,20 @@ ${sqf}
   }
 
   /**
+   * Full sanitization pipeline for SQF code
+   * Applies all sanitization steps in the correct order
+   */
+  sanitize(sqf: string): string {
+    // Step 1: Convert double quotes to single quotes (FIRST - before any other transforms)
+    let sanitized = this.convertQuotes(sqf);
+    // Step 2: Remove inline comments
+    sanitized = this.removeInlineComments(sanitized);
+    // Step 3: Wrap in safe execution context
+    sanitized = this.wrapInSafeContext(sanitized);
+    return sanitized;
+  }
+
+  /**
    * Add execution metadata comments
    */
   addMetadata(sqf: string, metadata: { timestamp: number; action: string; reasoning?: string }): string {
