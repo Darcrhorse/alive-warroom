@@ -164,3 +164,119 @@ export interface Config {
     corsOrigins: string[];
   };
 }
+
+// ============================================================================
+// Commander System Types
+// ============================================================================
+
+/**
+ * Operational modes for the AI Commander system
+ * - dual: Two AI commanders (EAST vs WEST) fight autonomously
+ * - east_only: Only EAST commander active (opposes player on WEST)
+ * - west_only: Only WEST commander active (opposes player on EAST)
+ * - interactive: Allied commander responds to player chat requests
+ */
+export type CommanderMode = 'dual' | 'east_only' | 'west_only' | 'interactive';
+
+/**
+ * Available units by type for a commander
+ */
+export interface UnitPool {
+  infantrySquads: number;
+  lightVehicles: number;
+  apcs: number;
+  tanks: number;
+  helicopters: number;
+  aircraft: number;
+}
+
+/**
+ * Information about a deployed group in the field
+ */
+export interface GroupInfo {
+  id: string;
+  type: string; // infantry, armor, air, etc.
+  unitCount: number;
+  position: Position;
+  assignedObjective: string | null;
+  status: 'moving' | 'engaged' | 'holding' | 'retreating' | 'destroyed';
+  health: number; // 0-1 average health of group
+}
+
+/**
+ * Intelligence report about enemy positions and activity
+ */
+export interface IntelReport {
+  id: string;
+  position: Position;
+  unitType: string; // infantry, armor, air, unknown
+  estimatedStrength: number; // estimated unit count
+  confidence: number; // 0-1 how confident we are in this intel
+  lastSeen: number; // timestamp of last observation
+  source: 'visual' | 'contact' | 'patrol' | 'radar' | 'comms';
+}
+
+/**
+ * Threat assessment matrix for battlefield analysis
+ */
+export interface ThreatMatrix {
+  overallThreat: number; // 0-1 overall threat level
+  infantryThreat: number; // 0-1
+  armorThreat: number; // 0-1
+  airThreat: number; // 0-1
+  artilleryThreat: number; // 0-1
+  hotspots: Position[]; // high-threat areas
+  safeZones: Position[]; // low-threat areas
+  predictedEnemyObjective: string | null;
+}
+
+/**
+ * Strategic objective for a commander
+ */
+export interface CommanderObjective {
+  id: string;
+  type: 'capture' | 'defend' | 'destroy' | 'patrol' | 'reinforce';
+  position: Position;
+  priority: number; // 1-10 (10 = highest priority)
+  assignedUnits: string[]; // group IDs assigned to this objective
+  status: 'pending' | 'active' | 'completed' | 'failed';
+  strategicValue: number; // importance to overall mission
+  description?: string;
+  timeLimit?: number; // optional time limit in seconds
+}
+
+/**
+ * Complete state of an AI Commander
+ */
+export interface CommanderState {
+  side: 'EAST' | 'WEST';
+  mode: CommanderMode;
+  difficulty: number; // 1-10
+
+  // Unit tracking
+  availableUnits: UnitPool;
+  deployedGroups: GroupInfo[];
+  maxUnits: number;
+
+  // Objectives
+  objectives: CommanderObjective[];
+  currentPriority: string; // ID of current priority objective
+
+  // Resources
+  reinforcementTickets: number;
+  ammoSupply: number; // 0-100 percentage
+  fuelSupply: number; // 0-100 percentage
+
+  // Intel
+  knownEnemyPositions: IntelReport[];
+  lastContactTimes: Record<string, number>; // area ID -> timestamp
+  threatAssessment: ThreatMatrix;
+
+  // Timing
+  lastActionTime: number;
+  lastDecisionReasoning: string;
+
+  // Status flags
+  isActive: boolean;
+  hasEstablishedFOB: boolean;
+}
