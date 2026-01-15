@@ -299,24 +299,98 @@ export class MockGameClient {
    * Send game state to bridge server via POST /api/state
    */
   private async sendState(state: GameState): Promise<void> {
-    // TODO: Implement in subtask 1-3
-    throw new Error('Not implemented');
+    const response = await fetch(`${BRIDGE_URL}/api/state`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(state)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to send state: ${response.status} ${errorText}`);
+    }
+
+    const result = await response.json() as { received: boolean; queuePosition: number };
+    console.log(`[Tick ${this.tickCount}] State sent - Players: ${state.players.length}, Enemies: ${state.enemyUnits.length}, Queue: ${result.queuePosition}`);
   }
 
   /**
    * Poll for pending actions from bridge via GET /api/action
    */
   private async pollActions(): Promise<void> {
-    // TODO: Implement in subtask 1-3
-    throw new Error('Not implemented');
+    const response = await fetch(`${BRIDGE_URL}/api/action`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to poll actions: ${response.status} ${errorText}`);
+    }
+
+    const result = await response.json() as {
+      hasAction: boolean;
+      sqf?: string;
+      sqfEncoding?: string;
+      commandId?: string;
+      metadata?: Record<string, unknown>;
+    };
+
+    if (!result.hasAction) {
+      return;
+    }
+
+    // Decode SQF if base64 encoded
+    let sqfCode = result.sqf || '';
+    if (result.sqfEncoding === 'base64' && sqfCode) {
+      sqfCode = Buffer.from(sqfCode, 'base64').toString('utf-8');
+    }
+
+    console.log(`\n[Tick ${this.tickCount}] ACTION RECEIVED:`);
+    console.log(`  Command ID: ${result.commandId || 'N/A'}`);
+    if (result.metadata) {
+      console.log(`  Metadata: ${JSON.stringify(result.metadata)}`);
+    }
+    console.log(`  SQF Code:\n${sqfCode.split('\n').map(line => `    ${line}`).join('\n')}`);
+
+    // Simulate command execution and send result
+    if (result.commandId) {
+      await this.sendResult(result.commandId, { executed: true, tick: this.tickCount });
+    }
   }
 
   /**
    * Send command execution result via POST /api/result
    */
   private async sendResult(commandId: string, result: unknown, error?: string): Promise<void> {
-    // TODO: Implement in subtask 1-3
-    throw new Error('Not implemented');
+    const payload: { commandId: string; result: unknown; error?: string } = {
+      commandId,
+      result
+    };
+
+    if (error) {
+      payload.error = error;
+    }
+
+    const response = await fetch(`${BRIDGE_URL}/api/result`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to send result: ${response.status} ${errorText}`);
+    }
+
+    const responseData = await response.json() as { received: boolean; commandId: string };
+    console.log(`[Tick ${this.tickCount}] Result sent for command ${responseData.commandId}`);
   }
 
   /**
