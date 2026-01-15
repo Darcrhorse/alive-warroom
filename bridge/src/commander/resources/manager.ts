@@ -183,6 +183,21 @@ export class ResourceManager {
   }
 
   /**
+   * Get maximum units in a specific pool category
+   */
+  getPoolMax(side: 'EAST' | 'WEST', poolType: UnitPoolType): number {
+    return this.resources[side].unitPool[poolType].max;
+  }
+
+  /**
+   * Get deployed units count (max - available) for a pool category
+   */
+  getPoolDeployed(side: 'EAST' | 'WEST', poolType: UnitPoolType): number {
+    const pool = this.resources[side].unitPool[poolType];
+    return pool.max - pool.available;
+  }
+
+  /**
    * Get support assets for a side
    */
   getSupportAssets(side: 'EAST' | 'WEST'): SupportAssets {
@@ -469,6 +484,148 @@ export class ResourceManager {
    */
   hasPoolAvailable(side: 'EAST' | 'WEST', poolType: UnitPoolType, count: number = 1): boolean {
     return this.resources[side].unitPool[poolType].available >= count;
+  }
+
+  /**
+   * Check if a pool is completely exhausted
+   */
+  isPoolExhausted(side: 'EAST' | 'WEST', poolType: UnitPoolType): boolean {
+    return this.resources[side].unitPool[poolType].available === 0;
+  }
+
+  /**
+   * Get the utilization percentage of a pool (0.0 = empty, 1.0 = full capacity used)
+   * This represents how much of the pool has been deployed (max - available) / max
+   */
+  getPoolUtilization(side: 'EAST' | 'WEST', poolType: UnitPoolType): number {
+    const pool = this.resources[side].unitPool[poolType];
+    if (pool.max === 0) return 0;
+    return (pool.max - pool.available) / pool.max;
+  }
+
+  /**
+   * Get the remaining capacity percentage of a pool (0.0 = depleted, 1.0 = full)
+   */
+  getPoolRemainingPercent(side: 'EAST' | 'WEST', poolType: UnitPoolType): number {
+    const pool = this.resources[side].unitPool[poolType];
+    if (pool.max === 0) return 0;
+    return pool.available / pool.max;
+  }
+
+  /**
+   * Get comprehensive status of all pools for a side
+   */
+  getPoolStatus(side: 'EAST' | 'WEST'): Record<UnitPoolType, { available: number; max: number; utilized: number; exhausted: boolean }> {
+    const poolTypes: UnitPoolType[] = ['infantry', 'lightVehicle', 'heavyArmor', 'helicopter', 'fixedWing'];
+    const status: Record<string, { available: number; max: number; utilized: number; exhausted: boolean }> = {};
+
+    for (const poolType of poolTypes) {
+      const pool = this.resources[side].unitPool[poolType];
+      status[poolType] = {
+        available: pool.available,
+        max: pool.max,
+        utilized: this.getPoolUtilization(side, poolType),
+        exhausted: pool.available === 0,
+      };
+    }
+
+    return status as Record<UnitPoolType, { available: number; max: number; utilized: number; exhausted: boolean }>;
+  }
+
+  /**
+   * Get summary totals for all pools
+   */
+  getPoolSummary(side: 'EAST' | 'WEST'): { totalAvailable: number; totalMax: number; totalUtilized: number; exhaustedPools: UnitPoolType[] } {
+    const poolTypes: UnitPoolType[] = ['infantry', 'lightVehicle', 'heavyArmor', 'helicopter', 'fixedWing'];
+    let totalAvailable = 0;
+    let totalMax = 0;
+    const exhaustedPools: UnitPoolType[] = [];
+
+    for (const poolType of poolTypes) {
+      const pool = this.resources[side].unitPool[poolType];
+      totalAvailable += pool.available;
+      totalMax += pool.max;
+      if (pool.available === 0) {
+        exhaustedPools.push(poolType);
+      }
+    }
+
+    return {
+      totalAvailable,
+      totalMax,
+      totalUtilized: totalMax > 0 ? (totalMax - totalAvailable) / totalMax : 0,
+      exhaustedPools,
+    };
+  }
+
+  /**
+   * Reset a specific pool to its maximum value
+   */
+  resetPool(side: 'EAST' | 'WEST', poolType: UnitPoolType): void {
+    const pool = this.resources[side].unitPool[poolType];
+    const previousValue = pool.available;
+    pool.available = pool.max;
+
+    this.logTransaction({
+      timestamp: Date.now(),
+      side,
+      type: 'pool_restore',
+      amount: pool.max - previousValue,
+      description: `Reset ${poolType} pool to max`,
+      previousValue,
+      newValue: pool.available,
+    });
+
+    logger.debug(`Pool reset for ${side}`, { poolType, newAvailable: pool.available });
+  }
+
+  /**
+   * Reset all pools for a side to their maximum values
+   */
+  resetAllPools(side: 'EAST' | 'WEST'): void {
+    const poolTypes: UnitPoolType[] = ['infantry', 'lightVehicle', 'heavyArmor', 'helicopter', 'fixedWing'];
+    for (const poolType of poolTypes) {
+      this.resetPool(side, poolType);
+    }
+    logger.info(`All pools reset for ${side}`);
+  }
+
+  /**
+   * Set the maximum value for a pool (useful for objective bonuses)
+   */
+  setPoolMax(side: 'EAST' | 'WEST', poolType: UnitPoolType, newMax: number): void {
+    const pool = this.resources[side].unitPool[poolType];
+    const previousMax = pool.max;
+    pool.max = Math.max(0, newMax);
+
+    // If available exceeds new max, cap it
+    if (pool.available > pool.max) {
+      pool.available = pool.max;
+    }
+
+    logger.debug(`Pool max updated for ${side}`, { poolType, previousMax, newMax: pool.max });
+  }
+
+  /**
+   * Add to pool maximum (e.g., from objective capture bonus)
+   */
+  addPoolBonus(side: 'EAST' | 'WEST', poolType: UnitPoolType, bonus: number): void {
+    const pool = this.resources[side].unitPool[poolType];
+    pool.max += bonus;
+    pool.available += bonus; // Also add to available
+
+    logger.info(`Pool bonus added for ${side}`, { poolType, bonus, newMax: pool.max, newAvailable: pool.available });
+  }
+
+  /**
+   * Remove pool bonus (e.g., from losing an objective)
+   */
+  removePoolBonus(side: 'EAST' | 'WEST', poolType: UnitPoolType, bonus: number): void {
+    const pool = this.resources[side].unitPool[poolType];
+    pool.max = Math.max(0, pool.max - bonus);
+    pool.available = Math.min(pool.available, pool.max); // Cap available at new max
+
+    logger.info(`Pool bonus removed for ${side}`, { poolType, bonus, newMax: pool.max, newAvailable: pool.available });
   }
 
   // ==================== Support Asset Operations ====================
