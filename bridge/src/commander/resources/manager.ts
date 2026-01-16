@@ -7,6 +7,8 @@
  * Follows the singleton pattern from GameStateManager.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { logger } from '../../utils/logger';
 import {
   CommanderResources,
@@ -1255,6 +1257,263 @@ export class ResourceManager {
   isInitialized(side: 'EAST' | 'WEST'): boolean {
     const resources = this.resources[side];
     return resources !== null && resources.maxTickets > 0;
+  }
+
+  // ==================== Session Persistence ====================
+
+  /**
+   * Get the default persistence file path
+   * Uses bridge/data/resources.json for session state storage
+   */
+  private getDefaultPersistencePath(): string {
+    // Resolve relative to the bridge directory
+    return path.resolve(__dirname, '../../../data/resources.json');
+  }
+
+  /**
+   * Save current resource state to a JSON file for session persistence
+   * @param filePath - Optional custom file path (defaults to bridge/data/resources.json)
+   * @returns true if save succeeded, false otherwise
+   */
+  saveState(filePath?: string): boolean {
+    const targetPath = filePath ?? this.getDefaultPersistencePath();
+
+    try {
+      // Ensure directory exists
+      const dir = path.dirname(targetPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      // Prepare state for serialization
+      const state = {
+        version: 1, // Schema version for future migrations
+        savedAt: Date.now(),
+        resources: this.resources,
+        transactionHistory: this.transactionHistory.slice(-100), // Keep only recent history
+      };
+
+      // Write state to file with pretty formatting
+      fs.writeFileSync(targetPath, JSON.stringify(state, null, 2), 'utf-8');
+
+      logger.info('Resource state saved', {
+        path: targetPath,
+        eastTickets: this.resources.EAST.tickets,
+        westTickets: this.resources.WEST.tickets,
+        transactionCount: state.transactionHistory.length,
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to save resource state', {
+        path: targetPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Load resource state from a JSON file
+   * Gracefully degrades to default state if file is missing or corrupted
+   * @param filePath - Optional custom file path (defaults to bridge/data/resources.json)
+   * @returns true if load succeeded, false if using default state
+   */
+  loadState(filePath?: string): boolean {
+    const targetPath = filePath ?? this.getDefaultPersistencePath();
+
+    try {
+      // Check if file exists
+      if (!fs.existsSync(targetPath)) {
+        logger.info('No persistence file found, using default state', { path: targetPath });
+        return false;
+      }
+
+      // Read and parse file
+      const content = fs.readFileSync(targetPath, 'utf-8');
+      const state = JSON.parse(content);
+
+      // Validate state structure
+      if (!this.validatePersistedState(state)) {
+        logger.warn('Invalid persisted state structure, using default state', { path: targetPath });
+        return false;
+      }
+
+      // Restore resources
+      this.resources = {
+        EAST: this.restoreCommanderResources(state.resources.EAST, 'EAST'),
+        WEST: this.restoreCommanderResources(state.resources.WEST, 'WEST'),
+      };
+
+      // Restore transaction history (if present)
+      if (Array.isArray(state.transactionHistory)) {
+        this.transactionHistory = state.transactionHistory;
+      }
+
+      logger.info('Resource state loaded', {
+        path: targetPath,
+        version: state.version,
+        savedAt: new Date(state.savedAt).toISOString(),
+        eastTickets: this.resources.EAST.tickets,
+        westTickets: this.resources.WEST.tickets,
+        transactionCount: this.transactionHistory.length,
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to load resource state, using default state', {
+        path: targetPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Validate that persisted state has the expected structure
+   * @param state - Parsed JSON state to validate
+   * @returns true if state structure is valid
+   */
+  private validatePersistedState(state: unknown): state is {
+    version: number;
+    savedAt: number;
+    resources: SideResources;
+    transactionHistory?: ResourceTransaction[];
+  } {
+    if (typeof state !== 'object' || state === null) {
+      return false;
+    }
+
+    const obj = state as Record<string, unknown>;
+
+    // Check required fields
+    if (typeof obj.version !== 'number') return false;
+    if (typeof obj.savedAt !== 'number') return false;
+    if (typeof obj.resources !== 'object' || obj.resources === null) return false;
+
+    const resources = obj.resources as Record<string, unknown>;
+
+    // Check both sides exist
+    if (!resources.EAST || !resources.WEST) return false;
+
+    return true;
+  }
+
+  /**
+   * Restore commander resources with validation and defaults for missing fields
+   * @param data - Persisted resource data
+   * @param side - Side being restored
+   * @returns Validated CommanderResources object
+   */
+  private restoreCommanderResources(
+    data: Partial<CommanderResources>,
+    side: 'EAST' | 'WEST'
+  ): CommanderResources {
+    const preset = getDefaultPreset();
+    const defaultResources = this.createInitialResources(side, preset.level);
+
+    // Merge persisted data with defaults for any missing fields
+    return {
+      side,
+      tickets: typeof data.tickets === 'number' ? data.tickets : defaultResources.tickets,
+      maxTickets: typeof data.maxTickets === 'number' ? data.maxTickets : defaultResources.maxTickets,
+      ticketRegen: typeof data.ticketRegen === 'number' ? data.ticketRegen : defaultResources.ticketRegen,
+      lastRegenTime: typeof data.lastRegenTime === 'number' ? data.lastRegenTime : Date.now(),
+      unitPool: this.restoreUnitPool(data.unitPool, defaultResources.unitPool),
+      supportAssets: this.restoreSupportAssets(data.supportAssets, defaultResources.supportAssets),
+      activeUnits: typeof data.activeUnits === 'number' ? data.activeUnits : defaultResources.activeUnits,
+      maxActiveUnits: typeof data.maxActiveUnits === 'number' ? data.maxActiveUnits : defaultResources.maxActiveUnits,
+      lastSpawnTime: typeof data.lastSpawnTime === 'number' ? data.lastSpawnTime : defaultResources.lastSpawnTime,
+      spawnCooldown: typeof data.spawnCooldown === 'number' ? data.spawnCooldown : defaultResources.spawnCooldown,
+      controlledObjectives: Array.isArray(data.controlledObjectives) ? data.controlledObjectives : defaultResources.controlledObjectives,
+      bonusTicketIncome: typeof data.bonusTicketIncome === 'number' ? data.bonusTicketIncome : defaultResources.bonusTicketIncome,
+    };
+  }
+
+  /**
+   * Restore unit pool with validation and defaults for missing pools
+   * @param data - Persisted unit pool data
+   * @param defaults - Default unit pool values
+   * @returns Validated UnitPool object
+   */
+  private restoreUnitPool(
+    data: Partial<UnitPool> | undefined,
+    defaults: UnitPool
+  ): UnitPool {
+    if (!data || typeof data !== 'object') {
+      return defaults;
+    }
+
+    const restorePoolCategory = (
+      poolData: { available?: number; max?: number } | undefined,
+      defaultCategory: { available: number; max: number }
+    ) => ({
+      available: typeof poolData?.available === 'number' ? poolData.available : defaultCategory.available,
+      max: typeof poolData?.max === 'number' ? poolData.max : defaultCategory.max,
+    });
+
+    return {
+      infantry: restorePoolCategory(data.infantry, defaults.infantry),
+      lightVehicle: restorePoolCategory(data.lightVehicle, defaults.lightVehicle),
+      heavyArmor: restorePoolCategory(data.heavyArmor, defaults.heavyArmor),
+      helicopter: restorePoolCategory(data.helicopter, defaults.helicopter),
+      fixedWing: restorePoolCategory(data.fixedWing, defaults.fixedWing),
+    };
+  }
+
+  /**
+   * Restore support assets with validation and defaults for missing assets
+   * @param data - Persisted support assets data
+   * @param defaults - Default support assets values
+   * @returns Validated SupportAssets object
+   */
+  private restoreSupportAssets(
+    data: Partial<SupportAssets> | undefined,
+    defaults: SupportAssets
+  ): SupportAssets {
+    if (!data || typeof data !== 'object') {
+      return defaults;
+    }
+
+    return {
+      artilleryStrikes: typeof data.artilleryStrikes === 'number' ? data.artilleryStrikes : defaults.artilleryStrikes,
+      casSorties: typeof data.casSorties === 'number' ? data.casSorties : defaults.casSorties,
+      resupplyDrops: typeof data.resupplyDrops === 'number' ? data.resupplyDrops : defaults.resupplyDrops,
+      medevacMissions: typeof data.medevacMissions === 'number' ? data.medevacMissions : defaults.medevacMissions,
+    };
+  }
+
+  /**
+   * Delete the persistence file
+   * @param filePath - Optional custom file path
+   * @returns true if deletion succeeded or file doesn't exist
+   */
+  deletePersistenceFile(filePath?: string): boolean {
+    const targetPath = filePath ?? this.getDefaultPersistencePath();
+
+    try {
+      if (fs.existsSync(targetPath)) {
+        fs.unlinkSync(targetPath);
+        logger.info('Persistence file deleted', { path: targetPath });
+      }
+      return true;
+    } catch (error) {
+      logger.error('Failed to delete persistence file', {
+        path: targetPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Check if a persistence file exists
+   * @param filePath - Optional custom file path
+   * @returns true if file exists
+   */
+  hasPersistenceFile(filePath?: string): boolean {
+    const targetPath = filePath ?? this.getDefaultPersistencePath();
+    return fs.existsSync(targetPath);
   }
 }
 
