@@ -295,6 +295,65 @@ export class BridgeServer {
         res.status(500).json({ error: 'Internal server error' });
       }
     });
+
+    // Refund tickets for a side (e.g., medevac, ticket returns)
+    this.app.post('/api/resources/refund', (req: Request, res: Response) => {
+      try {
+        const { side, amount, reason } = req.body;
+
+        // Validate side parameter
+        const normalizedSide = side?.toUpperCase() as 'EAST' | 'WEST';
+        if (normalizedSide !== 'EAST' && normalizedSide !== 'WEST') {
+          return res.status(400).json({ error: 'Invalid side. Must be EAST or WEST' });
+        }
+
+        // Validate amount parameter
+        if (typeof amount !== 'number' || amount <= 0) {
+          return res.status(400).json({ error: 'Invalid amount. Must be a positive number' });
+        }
+
+        // Get current tickets before refund (for response)
+        const previousTotal = resourceManager.getTickets(normalizedSide);
+
+        // Build reason string
+        const refundReason = reason ? String(reason) : 'manual ticket refund';
+
+        // Attempt to refund tickets
+        const result = resourceManager.refundTickets(normalizedSide, amount, refundReason);
+
+        if (!result.success) {
+          logger.warn('Ticket refund failed', {
+            side: normalizedSide,
+            amount,
+            reason: refundReason,
+            error: result.error,
+          });
+          return res.status(400).json({
+            success: false,
+            error: result.error,
+            currentTotal: result.newTotal,
+          });
+        }
+
+        logger.info('Tickets refunded', {
+          side: normalizedSide,
+          amount,
+          reason: refundReason,
+          previousTotal,
+          newTotal: result.newTotal,
+        });
+
+        res.json({
+          success: true,
+          previousTotal,
+          newTotal: result.newTotal,
+          amountRefunded: amount,
+        });
+      } catch (error) {
+        logger.error('Error refunding tickets', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
   }
 
   private async processGameState(gameState: GameState): Promise<void> {
