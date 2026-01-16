@@ -566,6 +566,100 @@ export class BridgeServer {
     return 'infantry';
   }
 
+  /**
+   * Process a kill reward by refunding tickets to the killing side
+   *
+   * When an enemy unit is killed, the killing side receives a partial ticket refund
+   * based on the original spawn cost of the killed unit. This rewards aggressive
+   * play and helps offset spawn costs.
+   *
+   * Also handles resource cleanup for the killed unit:
+   * - Decrements active unit count for the killed side
+   * - Restores the unit to the killed side's pool
+   *
+   * @param killedSide - The side that lost the unit ('EAST' or 'WEST')
+   * @param unitType - The type of unit that was killed (e.g., 'infantry', 'tank')
+   * @param refundPercent - Percentage of spawn cost to refund to killer (0.0 - 1.0, default 0.5 = 50%)
+   * @returns Object with success status, refund details, and resource updates
+   */
+  processKillReward(
+    killedSide: 'EAST' | 'WEST',
+    unitType: string,
+    refundPercent: number = 0.5
+  ): {
+    success: boolean;
+    killingSide: 'EAST' | 'WEST';
+    refundAmount: number;
+    unitType: string;
+    poolType: UnitPoolType;
+    newKillerTickets: number;
+    killedSideActiveUnits: number;
+    error?: string;
+  } {
+    // Determine the killing side (opposite of killed side)
+    const killingSide: 'EAST' | 'WEST' = killedSide === 'EAST' ? 'WEST' : 'EAST';
+
+    // Get spawn cost and pool type for the killed unit
+    const spawnCost = DEFAULT_SPAWN_COSTS[unitType] ?? DEFAULT_SPAWN_COSTS.infantry;
+    const poolType = SPAWN_TYPE_TO_POOL[unitType] ?? 'infantry';
+
+    // Calculate refund amount (clamped to valid percentage)
+    const clampedPercent = Math.max(0, Math.min(1, refundPercent));
+    const refundAmount = Math.floor(spawnCost * clampedPercent);
+
+    // Process refund to killing side if there's a refund to give
+    let newKillerTickets = resourceManager.getTickets(killingSide);
+    if (refundAmount > 0) {
+      const refundResult = resourceManager.refundTickets(
+        killingSide,
+        refundAmount,
+        `Kill reward: ${unitType} destroyed (${Math.round(clampedPercent * 100)}% of ${spawnCost})`
+      );
+
+      if (!refundResult.success) {
+        logger.warn('Kill reward refund failed', {
+          killingSide,
+          killedSide,
+          unitType,
+          refundAmount,
+          error: refundResult.error,
+        });
+        // Continue processing even if refund fails - unit cleanup is still needed
+      } else {
+        newKillerTickets = refundResult.newTotal;
+      }
+    }
+
+    // Decrement active units for killed side
+    resourceManager.decrementActiveUnits(killedSide);
+    const killedSideActiveUnits = resourceManager.getActiveUnits(killedSide);
+
+    // Restore unit to killed side's pool (they can spawn this type again)
+    resourceManager.restoreToPool(killedSide, poolType);
+
+    logger.info('Kill reward processed', {
+      killingSide,
+      killedSide,
+      unitType,
+      poolType,
+      spawnCost,
+      refundAmount,
+      refundPercent: clampedPercent,
+      newKillerTickets,
+      killedSideActiveUnits,
+    });
+
+    return {
+      success: true,
+      killingSide,
+      refundAmount,
+      unitType,
+      poolType,
+      newKillerTickets,
+      killedSideActiveUnits,
+    };
+  }
+
   private setupWebSocket(): void {
     if (!this.httpServer) return;
 
