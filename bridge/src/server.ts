@@ -16,6 +16,7 @@ import { sqfTemplates, SpawnQRFParams } from './sqf/templates';
 import { OpenAIClient } from './llm/openai';
 import { configManager } from './config/settings';
 import { logger, truncateSQF } from './utils/logger';
+import { inidbiWriter, CommandMetadata } from './inidbi-writer';
 
 export class BridgeServer {
   private app: express.Application;
@@ -69,6 +70,24 @@ export class BridgeServer {
   private generateCommandId(): string {
     this.commandIdCounter++;
     return `cmd_${Date.now()}_${this.commandIdCounter}`;
+  }
+
+  /**
+   * Write a command to the INIDBI file for game polling
+   * This provides an alternative to the extension-based communication
+   */
+  private async writeToInidbi(sqf: string, metadata: any): Promise<void> {
+    const commandMetadata: CommandMetadata = {
+      commandId: metadata.commandId || this.generateCommandId(),
+      type: metadata.type || 'unknown',
+      timestamp: metadata.timestamp || Date.now(),
+      ...metadata
+    };
+
+    const success = await inidbiWriter.writeCommand(sqf, commandMetadata);
+    if (!success) {
+      throw new Error('Failed to write command to INIDBI file');
+    }
   }
 
   private setupRoutes(): void {
@@ -255,18 +274,25 @@ export class BridgeServer {
         const sqf = sqfTemplates.spawnQRF(qrfParams);
 
         // Queue the action
+        const actionMetadata = {
+          type: 'qrf_spawn',
+          commandId,
+          position: qrfParams.position,
+          side: qrfParams.side,
+          unitCount: effectiveUnitCount,
+          faction: qrfParams.faction,
+          targetPosition: qrfParams.targetPosition,
+          timestamp: Date.now()
+        };
+
         this.actionQueue.push({
           sqf,
-          metadata: {
-            type: 'qrf_spawn',
-            commandId,
-            position: qrfParams.position,
-            side: qrfParams.side,
-            unitCount: effectiveUnitCount,
-            faction: qrfParams.faction,
-            targetPosition: qrfParams.targetPosition,
-            timestamp: Date.now()
-          }
+          metadata: actionMetadata
+        });
+
+        // Write to INIDBI file for game polling
+        this.writeToInidbi(sqf, actionMetadata).catch(err => {
+          logger.error('Failed to write command to INIDBI', { error: err, commandId });
         });
 
         logger.info('QRF spawn queued', {
@@ -441,18 +467,29 @@ if (count _artyUnits > 0) then {
       }
 
       // Queue action for execution
+      const commandId = this.generateCommandId();
+      const actionMetadata = {
+        commandId,
+        type: 'llm_action',
+        action: decision.action,
+        reasoning: decision.reasoning,
+        timestamp: now
+      };
+
       this.actionQueue.push({
         sqf: withMetadata,
-        metadata: {
-          action: decision.action,
-          reasoning: decision.reasoning,
-          timestamp: now
-        }
+        metadata: actionMetadata
+      });
+
+      // Write to INIDBI file for game polling
+      this.writeToInidbi(withMetadata, actionMetadata).catch(err => {
+        logger.error('Failed to write LLM command to INIDBI', { error: err, commandId });
       });
 
       this.lastActionTime = now;
       const sqfTruncated = truncateSQF(withMetadata);
       logger.info('Action queued for execution', {
+        commandId,
         queueLength: this.actionQueue.length,
         action: decision.action,
         sqf: sqfTruncated,
