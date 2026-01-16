@@ -58,10 +58,11 @@ export {
   getDefaultPreset,
 } from './presets';
 
-// Resource manager class and singleton
+// Resource manager class, singleton, and enums
 export {
   DEFAULT_SPAWN_COSTS,
   SPAWN_TYPE_TO_POOL,
+  LoadStatus,
   ResourceManager,
   resourceManager,
 } from './manager';

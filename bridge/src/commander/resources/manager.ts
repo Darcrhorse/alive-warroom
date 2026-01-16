@@ -64,12 +64,27 @@ export const SPAWN_TYPE_TO_POOL: Record<string, UnitPoolType> = {
   paradrop: 'infantry',
 };
 
+/**
+ * Enum representing the status of the last persistence load operation
+ */
+export enum LoadStatus {
+  NOT_LOADED = 'not_loaded',
+  SUCCESS = 'success',
+  FILE_NOT_FOUND = 'file_not_found',
+  EMPTY_FILE = 'empty_file',
+  INVALID_JSON = 'invalid_json',
+  INVALID_STRUCTURE = 'invalid_structure',
+  READ_ERROR = 'read_error',
+}
+
 export class ResourceManager {
   private resources: SideResources;
   private transactionHistory: ResourceTransaction[] = [];
   private maxHistorySize: number = 500;
   private lastRegenCheck: number = Date.now();
   private regenIntervalMs: number = 60000; // 1 minute
+  private _lastLoadStatus: LoadStatus = LoadStatus.NOT_LOADED;
+  private _lastLoadError: string | null = null;
 
   constructor() {
     // Initialize resources for both sides with default preset
@@ -1262,6 +1277,95 @@ export class ResourceManager {
   // ==================== Session Persistence ====================
 
   /**
+   * Get the status of the last load operation
+   * @returns LoadStatus enum value indicating what happened during the last loadState() call
+   */
+  getLastLoadStatus(): LoadStatus {
+    return this._lastLoadStatus;
+  }
+
+  /**
+   * Get the error message from the last load operation (if any)
+   * @returns Error message string or null if no error occurred
+   */
+  getLastLoadError(): string | null {
+    return this._lastLoadError;
+  }
+
+  /**
+   * Check if the last load operation encountered a corrupted file
+   * @returns true if the file was corrupted (invalid JSON or structure)
+   */
+  wasLastLoadCorrupted(): boolean {
+    return (
+      this._lastLoadStatus === LoadStatus.INVALID_JSON ||
+      this._lastLoadStatus === LoadStatus.INVALID_STRUCTURE ||
+      this._lastLoadStatus === LoadStatus.EMPTY_FILE
+    );
+  }
+
+  /**
+   * Backup a corrupted persistence file before resetting to defaults
+   * Creates a backup with .corrupted.{timestamp} extension
+   * @param filePath - Path to the corrupted file
+   * @returns Path to the backup file, or null if backup failed
+   */
+  private backupCorruptedFile(filePath: string): string | null {
+    try {
+      const timestamp = Date.now();
+      const backupPath = `${filePath}.corrupted.${timestamp}`;
+
+      // Only backup if source file exists
+      if (fs.existsSync(filePath)) {
+        fs.copyFileSync(filePath, backupPath);
+        logger.info('Corrupted persistence file backed up', {
+          originalPath: filePath,
+          backupPath,
+        });
+        return backupPath;
+      }
+      return null;
+    } catch (error) {
+      logger.warn('Failed to backup corrupted file', {
+        path: filePath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Handle a corrupted persistence file by backing it up and optionally deleting the original
+   * @param filePath - Path to the corrupted file
+   * @param deleteOriginal - Whether to delete the original file after backup (default: true)
+   * @returns true if handled successfully
+   */
+  handleCorruptedFile(filePath?: string, deleteOriginal: boolean = true): boolean {
+    const targetPath = filePath ?? this.getDefaultPersistencePath();
+
+    try {
+      // Backup the corrupted file
+      const backupPath = this.backupCorruptedFile(targetPath);
+
+      if (deleteOriginal && backupPath && fs.existsSync(targetPath)) {
+        fs.unlinkSync(targetPath);
+        logger.info('Corrupted persistence file removed after backup', {
+          path: targetPath,
+          backupPath,
+        });
+      }
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to handle corrupted file', {
+        path: targetPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  /**
    * Get the default persistence file path
    * Uses bridge/data/resources.json for session state storage
    */
@@ -1316,44 +1420,131 @@ export class ResourceManager {
   /**
    * Load resource state from a JSON file
    * Gracefully degrades to default state if file is missing or corrupted
+   *
+   * Graceful degradation behavior:
+   * - Missing file: Use default state, no error
+   * - Empty file: Backup file, use default state, log warning
+   * - Invalid JSON: Backup file, use default state, log error with details
+   * - Invalid structure: Backup file, use default state, log warning with specifics
+   * - Read error: Use default state, log error
+   *
+   * After calling this method, use getLastLoadStatus() and getLastLoadError()
+   * to understand what happened during the load operation.
+   *
    * @param filePath - Optional custom file path (defaults to bridge/data/resources.json)
+   * @param backupOnCorruption - Whether to backup corrupted files (default: true)
    * @returns true if load succeeded, false if using default state
    */
-  loadState(filePath?: string): boolean {
+  loadState(filePath?: string, backupOnCorruption: boolean = true): boolean {
     const targetPath = filePath ?? this.getDefaultPersistencePath();
+
+    // Reset load status
+    this._lastLoadError = null;
 
     try {
       // Check if file exists
       if (!fs.existsSync(targetPath)) {
+        this._lastLoadStatus = LoadStatus.FILE_NOT_FOUND;
         logger.info('No persistence file found, using default state', { path: targetPath });
         return false;
       }
 
-      // Read and parse file
-      const content = fs.readFileSync(targetPath, 'utf-8');
-      const state = JSON.parse(content);
-
-      // Validate state structure
-      if (!this.validatePersistedState(state)) {
-        logger.warn('Invalid persisted state structure, using default state', { path: targetPath });
+      // Read file content
+      let content: string;
+      try {
+        content = fs.readFileSync(targetPath, 'utf-8');
+      } catch (readError) {
+        this._lastLoadStatus = LoadStatus.READ_ERROR;
+        this._lastLoadError = readError instanceof Error ? readError.message : String(readError);
+        logger.error('Failed to read persistence file, using default state', {
+          path: targetPath,
+          error: this._lastLoadError,
+        });
         return false;
       }
 
-      // Restore resources
-      this.resources = {
-        EAST: this.restoreCommanderResources(state.resources.EAST, 'EAST'),
-        WEST: this.restoreCommanderResources(state.resources.WEST, 'WEST'),
-      };
+      // Check for empty file
+      if (!content || content.trim().length === 0) {
+        this._lastLoadStatus = LoadStatus.EMPTY_FILE;
+        this._lastLoadError = 'Persistence file is empty';
+        logger.warn('Empty persistence file detected, using default state', { path: targetPath });
 
-      // Restore transaction history (if present)
-      if (Array.isArray(state.transactionHistory)) {
-        this.transactionHistory = state.transactionHistory;
+        if (backupOnCorruption) {
+          this.backupCorruptedFile(targetPath);
+        }
+        return false;
       }
 
-      logger.info('Resource state loaded', {
+      // Parse JSON with detailed error handling
+      let state: unknown;
+      try {
+        state = JSON.parse(content);
+      } catch (parseError) {
+        this._lastLoadStatus = LoadStatus.INVALID_JSON;
+        this._lastLoadError = parseError instanceof Error ? parseError.message : String(parseError);
+
+        // Try to provide more context about the corruption
+        const previewLength = Math.min(100, content.length);
+        const contentPreview = content.substring(0, previewLength);
+        const isBinaryData = /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(contentPreview);
+
+        logger.error('Corrupted persistence file (invalid JSON), using default state', {
+          path: targetPath,
+          error: this._lastLoadError,
+          contentLength: content.length,
+          isBinaryData,
+          contentPreview: isBinaryData ? '[binary data]' : contentPreview.replace(/\n/g, '\\n'),
+        });
+
+        if (backupOnCorruption) {
+          this.backupCorruptedFile(targetPath);
+        }
+        return false;
+      }
+
+      // Validate state structure with detailed error reporting
+      const validationResult = this.validatePersistedStateDetailed(state);
+      if (!validationResult.valid) {
+        this._lastLoadStatus = LoadStatus.INVALID_STRUCTURE;
+        this._lastLoadError = validationResult.reason;
+        logger.warn('Invalid persisted state structure, using default state', {
+          path: targetPath,
+          reason: validationResult.reason,
+          missingFields: validationResult.missingFields,
+        });
+
+        if (backupOnCorruption) {
+          this.backupCorruptedFile(targetPath);
+        }
+        return false;
+      }
+
+      // State is valid - restore resources
+      const validState = state as {
+        version: number;
+        savedAt: number;
+        resources: SideResources;
+        transactionHistory?: ResourceTransaction[];
+      };
+
+      this.resources = {
+        EAST: this.restoreCommanderResources(validState.resources.EAST, 'EAST'),
+        WEST: this.restoreCommanderResources(validState.resources.WEST, 'WEST'),
+      };
+
+      // Restore transaction history (if present and valid)
+      if (Array.isArray(validState.transactionHistory)) {
+        // Filter out any invalid transactions during restore
+        this.transactionHistory = validState.transactionHistory.filter(
+          (t) => t && typeof t.timestamp === 'number' && typeof t.side === 'string'
+        );
+      }
+
+      this._lastLoadStatus = LoadStatus.SUCCESS;
+      logger.info('Resource state loaded successfully', {
         path: targetPath,
-        version: state.version,
-        savedAt: new Date(state.savedAt).toISOString(),
+        version: validState.version,
+        savedAt: new Date(validState.savedAt).toISOString(),
         eastTickets: this.resources.EAST.tickets,
         westTickets: this.resources.WEST.tickets,
         transactionCount: this.transactionHistory.length,
@@ -1361,18 +1552,78 @@ export class ResourceManager {
 
       return true;
     } catch (error) {
-      logger.error('Failed to load resource state, using default state', {
+      // Catch-all for any unexpected errors
+      this._lastLoadStatus = LoadStatus.READ_ERROR;
+      this._lastLoadError = error instanceof Error ? error.message : String(error);
+      logger.error('Unexpected error loading resource state, using default state', {
         path: targetPath,
-        error: error instanceof Error ? error.message : String(error),
+        error: this._lastLoadError,
       });
       return false;
     }
   }
 
   /**
+   * Validate persisted state with detailed error reporting
+   * @param state - Parsed JSON state to validate
+   * @returns Validation result with reason and missing fields
+   */
+  private validatePersistedStateDetailed(state: unknown): {
+    valid: boolean;
+    reason: string;
+    missingFields: string[];
+  } {
+    const missingFields: string[] = [];
+
+    if (typeof state !== 'object' || state === null) {
+      return {
+        valid: false,
+        reason: 'State is not an object',
+        missingFields: ['root'],
+      };
+    }
+
+    const obj = state as Record<string, unknown>;
+
+    // Check required fields
+    if (typeof obj.version !== 'number') {
+      missingFields.push('version');
+    }
+    if (typeof obj.savedAt !== 'number') {
+      missingFields.push('savedAt');
+    }
+    if (typeof obj.resources !== 'object' || obj.resources === null) {
+      missingFields.push('resources');
+    } else {
+      const resources = obj.resources as Record<string, unknown>;
+      if (!resources.EAST || typeof resources.EAST !== 'object') {
+        missingFields.push('resources.EAST');
+      }
+      if (!resources.WEST || typeof resources.WEST !== 'object') {
+        missingFields.push('resources.WEST');
+      }
+    }
+
+    if (missingFields.length > 0) {
+      return {
+        valid: false,
+        reason: `Missing or invalid required fields: ${missingFields.join(', ')}`,
+        missingFields,
+      };
+    }
+
+    return {
+      valid: true,
+      reason: '',
+      missingFields: [],
+    };
+  }
+
+  /**
    * Validate that persisted state has the expected structure
    * @param state - Parsed JSON state to validate
    * @returns true if state structure is valid
+   * @deprecated Use validatePersistedStateDetailed for more detailed error reporting
    */
   private validatePersistedState(state: unknown): state is {
     version: number;
@@ -1380,23 +1631,7 @@ export class ResourceManager {
     resources: SideResources;
     transactionHistory?: ResourceTransaction[];
   } {
-    if (typeof state !== 'object' || state === null) {
-      return false;
-    }
-
-    const obj = state as Record<string, unknown>;
-
-    // Check required fields
-    if (typeof obj.version !== 'number') return false;
-    if (typeof obj.savedAt !== 'number') return false;
-    if (typeof obj.resources !== 'object' || obj.resources === null) return false;
-
-    const resources = obj.resources as Record<string, unknown>;
-
-    // Check both sides exist
-    if (!resources.EAST || !resources.WEST) return false;
-
-    return true;
+    return this.validatePersistedStateDetailed(state).valid;
   }
 
   /**

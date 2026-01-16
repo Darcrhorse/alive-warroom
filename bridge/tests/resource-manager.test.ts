@@ -2,7 +2,10 @@
  * Tests for Resource Manager
  */
 
-import { ResourceManager, DEFAULT_SPAWN_COSTS, SPAWN_TYPE_TO_POOL } from '../src/commander/resources/manager';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { ResourceManager, DEFAULT_SPAWN_COSTS, SPAWN_TYPE_TO_POOL, LoadStatus } from '../src/commander/resources/manager';
 import { getDefaultPreset, getPresetByLevel } from '../src/commander/resources/presets';
 
 describe('ResourceManager', () => {
@@ -526,6 +529,232 @@ describe('ResourceManager', () => {
 
     it('should default to infantry pool for unknown spawn types', () => {
       expect(manager.getPoolTypeForSpawn('unknown_type')).toBe('infantry');
+    });
+  });
+
+  describe('session persistence and graceful degradation', () => {
+    let tempDir: string;
+    let testFilePath: string;
+
+    beforeEach(() => {
+      // Create a temp directory for test files
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resource-manager-test-'));
+      testFilePath = path.join(tempDir, 'test-resources.json');
+    });
+
+    afterEach(() => {
+      // Clean up temp files
+      try {
+        if (fs.existsSync(tempDir)) {
+          const files = fs.readdirSync(tempDir);
+          for (const file of files) {
+            fs.unlinkSync(path.join(tempDir, file));
+          }
+          fs.rmdirSync(tempDir);
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
+    });
+
+    it('should save and load state successfully', () => {
+      // Modify some state
+      manager.spendTickets('EAST', 20);
+      const ticketsBeforeSave = manager.getTickets('EAST');
+
+      // Save state
+      const saveResult = manager.saveState(testFilePath);
+      expect(saveResult).toBe(true);
+      expect(fs.existsSync(testFilePath)).toBe(true);
+
+      // Create new manager and load state
+      const newManager = new ResourceManager();
+      const loadResult = newManager.loadState(testFilePath);
+
+      expect(loadResult).toBe(true);
+      expect(newManager.getLastLoadStatus()).toBe(LoadStatus.SUCCESS);
+      expect(newManager.getTickets('EAST')).toBe(ticketsBeforeSave);
+    });
+
+    it('should gracefully handle missing persistence file', () => {
+      const nonExistentPath = path.join(tempDir, 'nonexistent.json');
+      const loadResult = manager.loadState(nonExistentPath);
+
+      expect(loadResult).toBe(false);
+      expect(manager.getLastLoadStatus()).toBe(LoadStatus.FILE_NOT_FOUND);
+      expect(manager.wasLastLoadCorrupted()).toBe(false);
+      // Manager should still have valid default state
+      expect(manager.isInitialized('EAST')).toBe(true);
+    });
+
+    it('should gracefully handle empty persistence file', () => {
+      // Create empty file
+      fs.writeFileSync(testFilePath, '');
+
+      const loadResult = manager.loadState(testFilePath, false); // Don't backup in test
+
+      expect(loadResult).toBe(false);
+      expect(manager.getLastLoadStatus()).toBe(LoadStatus.EMPTY_FILE);
+      expect(manager.wasLastLoadCorrupted()).toBe(true);
+      expect(manager.getLastLoadError()).toContain('empty');
+      // Manager should still have valid default state
+      expect(manager.isInitialized('EAST')).toBe(true);
+    });
+
+    it('should gracefully handle invalid JSON in persistence file', () => {
+      // Create file with invalid JSON
+      fs.writeFileSync(testFilePath, 'this is not valid JSON { broken');
+
+      const loadResult = manager.loadState(testFilePath, false);
+
+      expect(loadResult).toBe(false);
+      expect(manager.getLastLoadStatus()).toBe(LoadStatus.INVALID_JSON);
+      expect(manager.wasLastLoadCorrupted()).toBe(true);
+      expect(manager.getLastLoadError()).toBeDefined();
+      // Manager should still have valid default state
+      expect(manager.isInitialized('EAST')).toBe(true);
+    });
+
+    it('should gracefully handle corrupted JSON structure', () => {
+      // Create file with valid JSON but wrong structure
+      fs.writeFileSync(testFilePath, JSON.stringify({ foo: 'bar' }));
+
+      const loadResult = manager.loadState(testFilePath, false);
+
+      expect(loadResult).toBe(false);
+      expect(manager.getLastLoadStatus()).toBe(LoadStatus.INVALID_STRUCTURE);
+      expect(manager.wasLastLoadCorrupted()).toBe(true);
+      expect(manager.getLastLoadError()).toContain('Missing');
+      // Manager should still have valid default state
+      expect(manager.isInitialized('EAST')).toBe(true);
+    });
+
+    it('should gracefully handle partial JSON structure', () => {
+      // Create file with partial structure (missing WEST side)
+      const partialState = {
+        version: 1,
+        savedAt: Date.now(),
+        resources: {
+          EAST: { tickets: 50 },
+          // Missing WEST
+        },
+      };
+      fs.writeFileSync(testFilePath, JSON.stringify(partialState));
+
+      const loadResult = manager.loadState(testFilePath, false);
+
+      expect(loadResult).toBe(false);
+      expect(manager.getLastLoadStatus()).toBe(LoadStatus.INVALID_STRUCTURE);
+      expect(manager.wasLastLoadCorrupted()).toBe(true);
+      // Manager should still have valid default state
+      expect(manager.isInitialized('EAST')).toBe(true);
+      expect(manager.isInitialized('WEST')).toBe(true);
+    });
+
+    it('should backup corrupted file when backupOnCorruption is true', () => {
+      // Create file with invalid JSON
+      fs.writeFileSync(testFilePath, 'invalid json content');
+
+      const loadResult = manager.loadState(testFilePath, true);
+
+      expect(loadResult).toBe(false);
+      expect(manager.wasLastLoadCorrupted()).toBe(true);
+
+      // Check that a backup file was created
+      const files = fs.readdirSync(tempDir);
+      const backupFiles = files.filter((f) => f.includes('.corrupted.'));
+      expect(backupFiles.length).toBe(1);
+    });
+
+    it('should not backup corrupted file when backupOnCorruption is false', () => {
+      // Create file with invalid JSON
+      fs.writeFileSync(testFilePath, 'invalid json content');
+
+      const loadResult = manager.loadState(testFilePath, false);
+
+      expect(loadResult).toBe(false);
+
+      // Check that no backup file was created
+      const files = fs.readdirSync(tempDir);
+      const backupFiles = files.filter((f) => f.includes('.corrupted.'));
+      expect(backupFiles.length).toBe(0);
+    });
+
+    it('should handle binary data in persistence file', () => {
+      // Create file with binary data (null bytes)
+      const binaryData = Buffer.from([0x00, 0x01, 0x02, 0xff, 0xfe]);
+      fs.writeFileSync(testFilePath, binaryData);
+
+      const loadResult = manager.loadState(testFilePath, false);
+
+      expect(loadResult).toBe(false);
+      expect(manager.getLastLoadStatus()).toBe(LoadStatus.INVALID_JSON);
+      expect(manager.wasLastLoadCorrupted()).toBe(true);
+    });
+
+    it('should track load status correctly through multiple load attempts', () => {
+      // First: missing file
+      manager.loadState(path.join(tempDir, 'missing.json'));
+      expect(manager.getLastLoadStatus()).toBe(LoadStatus.FILE_NOT_FOUND);
+
+      // Second: invalid JSON
+      fs.writeFileSync(testFilePath, 'not json');
+      manager.loadState(testFilePath, false);
+      expect(manager.getLastLoadStatus()).toBe(LoadStatus.INVALID_JSON);
+
+      // Third: success
+      manager.saveState(testFilePath);
+      manager.loadState(testFilePath);
+      expect(manager.getLastLoadStatus()).toBe(LoadStatus.SUCCESS);
+    });
+
+    it('should handle handleCorruptedFile correctly', () => {
+      // Create a corrupted file
+      fs.writeFileSync(testFilePath, 'corrupted content');
+
+      // Handle it
+      const result = manager.handleCorruptedFile(testFilePath, true);
+      expect(result).toBe(true);
+
+      // Original should be deleted
+      expect(fs.existsSync(testFilePath)).toBe(false);
+
+      // Backup should exist
+      const files = fs.readdirSync(tempDir);
+      const backupFiles = files.filter((f) => f.includes('.corrupted.'));
+      expect(backupFiles.length).toBe(1);
+    });
+
+    it('should preserve default state when file is missing', () => {
+      const preset = getDefaultPreset();
+      const initialTickets = manager.getTickets('EAST');
+
+      // Load non-existent file
+      manager.loadState(path.join(tempDir, 'nonexistent.json'));
+
+      // State should be unchanged
+      expect(manager.getTickets('EAST')).toBe(initialTickets);
+      expect(manager.getTickets('EAST')).toBe(preset.tickets);
+    });
+
+    it('should delete persistence file correctly', () => {
+      // Create a file
+      fs.writeFileSync(testFilePath, JSON.stringify({ test: true }));
+      expect(fs.existsSync(testFilePath)).toBe(true);
+
+      // Delete it
+      const result = manager.deletePersistenceFile(testFilePath);
+
+      expect(result).toBe(true);
+      expect(fs.existsSync(testFilePath)).toBe(false);
+    });
+
+    it('should check if persistence file exists', () => {
+      expect(manager.hasPersistenceFile(testFilePath)).toBe(false);
+
+      fs.writeFileSync(testFilePath, '{}');
+
+      expect(manager.hasPersistenceFile(testFilePath)).toBe(true);
     });
   });
 });
