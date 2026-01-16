@@ -14,6 +14,7 @@ import { sqfParser } from './sqf/parser';
 import { OpenAIClient } from './llm/openai';
 import { configManager } from './config/settings';
 import { logger } from './utils/logger';
+import { resourceManager } from './commander/resources';
 
 export class BridgeServer {
   private app: express.Application;
@@ -28,6 +29,21 @@ export class BridgeServer {
     this.setupMiddleware();
     this.setupRoutes();
     this.setupLLMClient();
+    this.initializeResources();
+  }
+
+  private initializeResources(): void {
+    // ResourceManager singleton is auto-initialized with EAST/WEST resources
+    // Log the initialization status for debugging
+    const eastResources = resourceManager.getResources('EAST');
+    const westResources = resourceManager.getResources('WEST');
+
+    logger.info('Resource system initialized', {
+      eastTickets: eastResources.tickets,
+      eastMaxTickets: eastResources.maxTickets,
+      westTickets: westResources.tickets,
+      westMaxTickets: westResources.maxTickets,
+    });
   }
 
   private setupMiddleware(): void {
