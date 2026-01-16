@@ -14,7 +14,12 @@ import { sqfParser } from './sqf/parser';
 import { OpenAIClient } from './llm/openai';
 import { configManager } from './config/settings';
 import { logger } from './utils/logger';
-import { resourceManager } from './commander/resources';
+import {
+  resourceManager,
+  UnitPoolType,
+  SPAWN_TYPE_TO_POOL,
+  DEFAULT_SPAWN_COSTS,
+} from './commander/resources';
 
 export class BridgeServer {
   private app: express.Application;
@@ -252,6 +257,196 @@ export class BridgeServer {
     } catch (error) {
       logger.error('Error processing game state with LLM', { error });
     }
+  }
+
+  /**
+   * Process a spawn decision for a specific side using ResourceManager
+   *
+   * Replaces simple budget variables with comprehensive resource management:
+   * - Ticket spending and tracking
+   * - Unit pool deduction
+   * - Active unit count management
+   * - Spawn timing tracking
+   *
+   * @param side - The side making the spawn decision ('EAST' or 'WEST')
+   * @param spawnType - Type of unit to spawn (e.g., 'infantry', 'tank', 'helicopter')
+   * @param count - Number of units to spawn (default 1)
+   * @param targetObjective - Optional objective ID for strategic assignment
+   * @returns Object with success status and details
+   */
+  processSideDecision(
+    side: 'EAST' | 'WEST',
+    spawnType: string,
+    count: number = 1,
+    targetObjective?: string
+  ): {
+    success: boolean;
+    ticketCost: number;
+    poolType: UnitPoolType;
+    remainingTickets: number;
+    remainingPool: number;
+    error?: string;
+  } {
+    // Get spawn cost and pool type using ResourceManager mappings
+    const ticketCost = DEFAULT_SPAWN_COSTS[spawnType] ?? DEFAULT_SPAWN_COSTS.infantry;
+    const poolType = SPAWN_TYPE_TO_POOL[spawnType] ?? 'infantry';
+    const totalCost = ticketCost * count;
+
+    // Get current resource state
+    const currentTickets = resourceManager.getTickets(side);
+    const currentPool = resourceManager.getPoolAvailable(side, poolType);
+    const canSpawnMore = resourceManager.canSpawnMoreUnits(side, count);
+    const isOnCooldown = resourceManager.isOnCooldown(side);
+
+    // Check cooldown
+    if (isOnCooldown) {
+      const cooldownRemaining = resourceManager.getSpawnCooldown(side) -
+        resourceManager.getTimeSinceLastSpawn(side);
+      logger.warn(`Spawn blocked for ${side}: cooldown active`, {
+        spawnType,
+        count,
+        cooldownRemaining: Math.ceil(cooldownRemaining / 1000),
+      });
+      return {
+        success: false,
+        ticketCost: totalCost,
+        poolType,
+        remainingTickets: currentTickets,
+        remainingPool: currentPool,
+        error: `Spawn cooldown active: ${Math.ceil(cooldownRemaining / 1000)} seconds remaining`,
+      };
+    }
+
+    // Check active unit cap
+    if (!canSpawnMore) {
+      const activeUnits = resourceManager.getActiveUnits(side);
+      const maxUnits = resourceManager.getMaxActiveUnits(side);
+      logger.warn(`Spawn blocked for ${side}: active unit cap reached`, {
+        spawnType,
+        count,
+        activeUnits,
+        maxUnits,
+      });
+      return {
+        success: false,
+        ticketCost: totalCost,
+        poolType,
+        remainingTickets: currentTickets,
+        remainingPool: currentPool,
+        error: `Active unit cap reached: ${activeUnits}/${maxUnits}`,
+      };
+    }
+
+    // Check ticket availability
+    if (currentTickets < totalCost) {
+      logger.warn(`Spawn blocked for ${side}: insufficient tickets`, {
+        spawnType,
+        count,
+        ticketCost: totalCost,
+        currentTickets,
+      });
+      return {
+        success: false,
+        ticketCost: totalCost,
+        poolType,
+        remainingTickets: currentTickets,
+        remainingPool: currentPool,
+        error: `Insufficient tickets: need ${totalCost}, have ${currentTickets}`,
+      };
+    }
+
+    // Check unit pool availability
+    if (currentPool < count) {
+      logger.warn(`Spawn blocked for ${side}: unit pool exhausted`, {
+        spawnType,
+        count,
+        poolType,
+        currentPool,
+      });
+      return {
+        success: false,
+        ticketCost: totalCost,
+        poolType,
+        remainingTickets: currentTickets,
+        remainingPool: currentPool,
+        error: `Unit pool exhausted: ${poolType} has ${currentPool}/${count} needed`,
+      };
+    }
+
+    // All checks passed - execute resource spending
+
+    // Spend tickets
+    const spendResult = resourceManager.spendTickets(
+      side,
+      totalCost,
+      `${spawnType} spawn (x${count})`
+    );
+
+    if (!spendResult.success) {
+      logger.error(`Unexpected ticket spend failure for ${side}`, {
+        spawnType,
+        count,
+        totalCost,
+        error: spendResult.error,
+      });
+      return {
+        success: false,
+        ticketCost: totalCost,
+        poolType,
+        remainingTickets: currentTickets,
+        remainingPool: currentPool,
+        error: spendResult.error,
+      };
+    }
+
+    // Deduct from unit pool
+    const poolDeducted = resourceManager.deductFromPool(side, poolType, count);
+    if (!poolDeducted) {
+      // This shouldn't happen since we checked above, but handle gracefully
+      // Refund the tickets since the spawn failed
+      resourceManager.refundTickets(side, totalCost, 'Pool deduction failed - refund');
+      logger.error(`Unexpected pool deduction failure for ${side}`, {
+        spawnType,
+        count,
+        poolType,
+      });
+      return {
+        success: false,
+        ticketCost: totalCost,
+        poolType,
+        remainingTickets: resourceManager.getTickets(side),
+        remainingPool: resourceManager.getPoolAvailable(side, poolType),
+        error: 'Pool deduction failed unexpectedly',
+      };
+    }
+
+    // Increment active unit count
+    resourceManager.incrementActiveUnits(side, count);
+
+    // Record spawn time (resets cooldown)
+    resourceManager.recordSpawn(side);
+
+    // Log successful spawn
+    const remainingTickets = resourceManager.getTickets(side);
+    const remainingPool = resourceManager.getPoolAvailable(side, poolType);
+
+    logger.info(`Spawn processed for ${side}`, {
+      spawnType,
+      count,
+      ticketCost: totalCost,
+      poolType,
+      remainingTickets,
+      remainingPool,
+      targetObjective,
+    });
+
+    return {
+      success: true,
+      ticketCost: totalCost,
+      poolType,
+      remainingTickets,
+      remainingPool,
+    };
   }
 
   private setupWebSocket(): void {
