@@ -19,6 +19,8 @@ import {
   UnitPoolType,
   SPAWN_TYPE_TO_POOL,
   DEFAULT_SPAWN_COSTS,
+  spawnValidator,
+  SpawnRequest,
 } from './commander/resources';
 
 export class BridgeServer {
@@ -202,6 +204,26 @@ export class BridgeServer {
       if (decision.action === 'wait') {
         logger.info('LLM decided to wait');
         return;
+      }
+
+      // Validate spawn before processing spawn-related AI decisions
+      if (this.isSpawnRelatedAction(decision.action)) {
+        const validationResult = this.validateSpawnDecision(decision);
+        if (!validationResult.allowed) {
+          logger.warn('Spawn validation failed, blocking AI decision', {
+            action: decision.action,
+            failedChecks: validationResult.failedChecks,
+            warnings: validationResult.warnings,
+          });
+          return;
+        }
+
+        if (validationResult.warnings.length > 0) {
+          logger.info('Spawn validation passed with warnings', {
+            action: decision.action,
+            warnings: validationResult.warnings,
+          });
+        }
       }
 
       // Extract SQF from decision
@@ -447,6 +469,101 @@ export class BridgeServer {
       remainingTickets,
       remainingPool,
     };
+  }
+
+  /**
+   * Check if an action is spawn-related and requires resource validation
+   *
+   * @param action - The action type from the LLM decision
+   * @returns True if the action requires spawn validation
+   */
+  private isSpawnRelatedAction(action: string): boolean {
+    const spawnActions = [
+      'spawn',
+      'spawn_infantry',
+      'spawn_vehicle',
+      'spawn_aircraft',
+      'spawn_armor',
+      'spawn_helicopter',
+      'spawn_jet',
+      'spawn_paradrop',
+      'reinforce',
+      'reinforcement',
+      'deploy',
+      'deploy_units',
+    ];
+
+    return spawnActions.includes(action.toLowerCase());
+  }
+
+  /**
+   * Validate a spawn decision from the AI using the spawn validator
+   *
+   * Extracts spawn parameters from the LLM decision and validates against:
+   * - Ticket availability
+   * - Unit pool availability
+   * - Active unit cap
+   * - Spawn cooldown
+   *
+   * @param decision - The decision from the LLM
+   * @returns SpawnValidation result
+   */
+  private validateSpawnDecision(decision: { action: string; parameters: Record<string, any> }): {
+    allowed: boolean;
+    failedChecks: string[];
+    warnings: string[];
+    ticketCost: number;
+    poolType: UnitPoolType;
+  } {
+    // Extract spawn parameters from decision
+    const side = (decision.parameters.side as 'EAST' | 'WEST') || 'EAST';
+    const spawnType = (decision.parameters.spawnType as string) ||
+                      (decision.parameters.unitType as string) ||
+                      this.inferSpawnTypeFromAction(decision.action);
+    const count = (decision.parameters.count as number) || 1;
+    const targetObjective = decision.parameters.targetObjective as string | undefined;
+
+    // Build spawn request for validator
+    const spawnRequest: SpawnRequest = {
+      side,
+      spawnType,
+      count,
+      targetObjective,
+    };
+
+    // Run validation through spawn validator
+    const validation = spawnValidator.validateSpawn(resourceManager, spawnRequest);
+
+    logger.debug('Spawn validation result', {
+      side,
+      spawnType,
+      count,
+      allowed: validation.allowed,
+      failedChecks: validation.failedChecks,
+      warnings: validation.warnings,
+    });
+
+    return validation;
+  }
+
+  /**
+   * Infer spawn type from action name for cases where spawnType is not explicitly provided
+   *
+   * @param action - The action name
+   * @returns Inferred spawn type
+   */
+  private inferSpawnTypeFromAction(action: string): string {
+    const actionLower = action.toLowerCase();
+
+    if (actionLower.includes('infantry')) return 'infantry';
+    if (actionLower.includes('armor') || actionLower.includes('tank')) return 'tank';
+    if (actionLower.includes('helicopter') || actionLower.includes('heli')) return 'helicopter';
+    if (actionLower.includes('jet') || actionLower.includes('aircraft')) return 'jet';
+    if (actionLower.includes('vehicle') || actionLower.includes('apc')) return 'apc';
+    if (actionLower.includes('paradrop')) return 'paradrop';
+
+    // Default to infantry for generic spawn actions
+    return 'infantry';
   }
 
   private setupWebSocket(): void {
