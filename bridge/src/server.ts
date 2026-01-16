@@ -4,6 +4,7 @@
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import { z } from 'zod';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Server as HTTPServer } from 'http';
 import { GameState, GameEvent } from './game-state/types';
@@ -238,6 +239,85 @@ export class BridgeServer {
         });
       } catch (error) {
         logger.error('Error spawning QRF', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Fire Mission endpoint - Artillery support
+    const FireMissionRequestSchema = z.object({
+      position: z.array(z.number()).length(3),
+      warheadType: z.enum(['HE', 'Smoke', 'Illum']),
+      rounds: z.number().int().positive().max(50)
+    });
+
+    const AMMO_CLASS_MAP: Record<string, string> = {
+      HE: 'rhs_mag_m1_he_12',
+      Smoke: 'rhs_mag_m60a2_smoke_4',
+      Illum: 'rhs_mag_m314_ilum_4'
+    };
+
+    this.app.post('/api/fire-mission', (req: Request, res: Response) => {
+      try {
+        const parseResult = FireMissionRequestSchema.safeParse(req.body);
+
+        if (!parseResult.success) {
+          const errors = parseResult.error.errors;
+          const warheadError = errors.find(e => e.path.includes('warheadType'));
+          if (warheadError) {
+            return res.status(400).json({
+              error: 'Invalid warhead type',
+              validTypes: ['HE', 'Smoke', 'Illum']
+            });
+          }
+          return res.status(400).json({
+            error: 'Invalid request parameters',
+            details: errors.map(e => e.message)
+          });
+        }
+
+        const { position, warheadType, rounds } = parseResult.data;
+        const ammoClass = AMMO_CLASS_MAP[warheadType];
+
+        // Generate SQF with single quotes per convention
+        const sqf = `// Fire Mission - ${warheadType} barrage on target
+private _targetPos = [${position[0]}, ${position[1]}, ${position[2]}];
+private _ammoClass = '${ammoClass}';
+private _rounds = ${rounds};
+
+// Find nearest artillery capable unit
+private _artyUnits = allUnits select {
+  (vehicle _x) isKindOf 'StaticMortar' ||
+  (vehicle _x) isKindOf 'Artillery'
+};
+
+if (count _artyUnits > 0) then {
+  private _arty = vehicle (_artyUnits select 0);
+  _arty doArtilleryFire [_targetPos, _ammoClass, _rounds];
+  systemChat format ['FIRE MISSION: %1 rounds of ${warheadType} on grid %2-%3', _rounds, round (_targetPos select 0), round (_targetPos select 1)];
+} else {
+  systemChat 'FIRE MISSION FAILED: No artillery units available';
+};`;
+
+        // Check for magazine capacity warning
+        const warning = rounds > 8 ? 'Warning: Rounds exceed typical magazine capacity (8)' : null;
+
+        logger.info('Fire mission generated', {
+          warheadType,
+          ammoClass,
+          rounds,
+          position: position.join(',')
+        });
+
+        res.json({
+          success: true,
+          sqf,
+          warheadType,
+          ammoClass,
+          rounds,
+          warning
+        });
+      } catch (error) {
+        logger.error('Error generating fire mission', { error });
         res.status(500).json({ error: 'Internal server error' });
       }
     });
