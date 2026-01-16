@@ -61,10 +61,14 @@ private _blockedCommands = [
 private _safe = true;
 private _violations = [];
 
+// Convert to lowercase for case-insensitive matching
+private _sqfLower = toLower _sqf;
+
 {
     private _cmd = _x;
-    // Use case-insensitive search with word boundaries
-    if (_sqf regexMatch ("(?i)\b" + _cmd + "\b")) then {
+    private _cmdLower = toLower _cmd;
+    // Use simple string search (case-insensitive via toLower)
+    if (_sqfLower find _cmdLower >= 0) then {
         _safe = false;
         _violations pushBack _cmd;
         diag_log format ["[LLMGM] ERROR: Blocked command detected: %1", _cmd];
@@ -72,10 +76,16 @@ private _violations = [];
 } forEach _blockedCommands;
 
 // Additional security: check for player harm
-if (_sqf regexMatch "(?i)deleteVehicle\s+player") then {
-    _safe = false;
-    _violations pushBack "deleteVehicle player";
-    diag_log "[LLMGM] ERROR: Attempt to delete player detected";
+// Check for deleteVehicle followed by player (with any whitespace)
+if (_sqfLower find "deletevehicle" >= 0 && {_sqfLower find "player" >= 0}) then {
+    // More precise check - see if "player" appears after "deletevehicle"
+    private _deletePos = _sqfLower find "deletevehicle";
+    private _playerPos = _sqfLower find "player";
+    if (_playerPos > _deletePos) then {
+        _safe = false;
+        _violations pushBack "deleteVehicle player";
+        diag_log "[LLMGM] ERROR: Attempt to delete player detected";
+    };
 };
 
 // Exit if unsafe
