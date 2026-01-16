@@ -34,6 +34,30 @@ SQF → C++ Extension (extension/src/) → HTTP → Node.js Bridge → Claude AP
 
 ---
 
+## GitHub Issue #4 - Fix to Codebase Mapping
+
+This table maps each fix documented in GitHub Issue #4 to the actual codebase needs:
+
+| Fix # | Status | Applicable (Yes/No/Partial) |
+|-------|--------|---------------------------|
+| **#1** | ✅ Completed | **Yes** - SDK upgraded to v0.71.2 in bridge/package.json |
+| **#2** | ⏳ Pending | **Yes** - XEH classes need to be added to addon/config.cpp |
+| **#3** | N/A | **No** - No Python/Pythia bridge exists in codebase |
+| **#4** | ✅ Completed | **Partial** - Endpoints correct in server & C++ extension, but Python client doesn't exist |
+| **#5** | ⏳ Pending | **Yes** - Null handling needed in addon/functions/fn_collectGameState.sqf |
+| **#6** | ✅ Already Fixed | **Yes** - Current implementation doesn't have scoping issue |
+| **#7** | N/A | **No** - No Pythia extension; C++ extension uses HASHMAP format natively |
+
+### Summary Statistics
+- **Total Fixes**: 7
+- **Fully Applicable**: 4 (Fixes #1, #2, #5, #6)
+- **Partially Applicable**: 1 (Fix #4)
+- **Not Applicable**: 2 (Fixes #3, #7)
+- **Completed**: 3 (Fixes #1, #4, #6)
+- **Pending Implementation**: 1 (Fix #2, #5)
+
+---
+
 ## Fix Applicability Analysis
 
 | Fix # | Description | Applicable? | Status | Notes |
