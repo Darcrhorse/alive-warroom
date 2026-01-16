@@ -14,7 +14,7 @@ import { sqfParser } from './sqf/parser';
 import { sqfTemplates, SpawnQRFParams } from './sqf/templates';
 import { OpenAIClient } from './llm/openai';
 import { configManager } from './config/settings';
-import { logger } from './utils/logger';
+import { logger, truncateSQF } from './utils/logger';
 
 export class BridgeServer {
   private app: express.Application;
@@ -36,9 +36,15 @@ export class BridgeServer {
     this.app.use(cors({ origin: configManager.get('server').corsOrigins }));
     this.app.use(express.json({ limit: '10mb' }));
     
-    // Request logging
+    // Request logging with encoding/decoding debug info
     this.app.use((req, res, next) => {
       logger.debug(`${req.method} ${req.path}`);
+      if (req.body && Object.keys(req.body).length > 0) {
+        logger.debug('Request body decoded (JSON)', {
+          path: req.path,
+          bodySize: JSON.stringify(req.body).length
+        });
+      }
       next();
     });
   }
@@ -92,11 +98,40 @@ export class BridgeServer {
 
         // Update state
         gameStateManager.updateState(gameState);
-        
+
+        // Detailed game state logging
+        const playersAlive = gameState.players.filter((p: any) => p.alive !== false).length;
+        const playersInVehicles = gameState.players.filter((p: any) => p.vehicle).length;
+        const avgHealth = gameState.players.length > 0
+          ? gameState.players.reduce((sum: number, p: any) => sum + (p.health ?? 1), 0) / gameState.players.length
+          : 0;
+
         logger.info('Game state received', {
-          players: gameState.players.length,
-          enemies: gameState.enemyUnits.length,
-          timestamp: gameState.timestamp
+          timestamp: gameState.timestamp,
+          mission: {
+            name: gameState.missionName || 'unknown',
+            elapsedTime: gameState.missionTime || 0
+          },
+          players: {
+            total: gameState.players.length,
+            alive: playersAlive,
+            inVehicles: playersInVehicles,
+            avgHealth: Math.round(avgHealth * 100) / 100
+          },
+          units: {
+            friendly: gameState.friendlyUnits?.length || 0,
+            enemy: gameState.enemyUnits?.length || 0
+          },
+          objectives: {
+            active: gameState.objectives?.filter((o: any) => o.status === 'active')?.length || 0,
+            completed: gameState.objectives?.filter((o: any) => o.status === 'completed')?.length || 0,
+            failed: gameState.objectives?.filter((o: any) => o.status === 'failed')?.length || 0
+          },
+          environment: {
+            timeOfDay: gameState.environment?.timeOfDay || 'unknown',
+            weather: gameState.environment?.weather || 'unknown'
+          },
+          recentEvents: gameState.events?.length || 0
         });
 
         // Process state asynchronously
@@ -118,7 +153,19 @@ export class BridgeServer {
       }
 
       const action = this.actionQueue.shift();
-      logger.info('Action sent to game', { metadata: action?.metadata });
+      const sqfTruncated = action?.sqf ? truncateSQF(action.sqf) : null;
+
+      logger.info('Action sent to game', {
+        metadata: action?.metadata,
+        sqf: sqfTruncated,
+        sqfLength: action?.sqf?.length ?? 0,
+        remainingInQueue: this.actionQueue.length
+      });
+
+      logger.debug('Response encoding (JSON)', {
+        endpoint: '/api/action',
+        responseSize: JSON.stringify({ hasAction: true, sqf: action?.sqf, metadata: action?.metadata }).length
+      });
 
       res.json({
         hasAction: true,
@@ -324,7 +371,13 @@ export class BridgeServer {
       });
 
       this.lastActionTime = now;
-      logger.info('Action queued for execution', { queueLength: this.actionQueue.length });
+      const sqfTruncated = truncateSQF(withMetadata);
+      logger.info('Action queued for execution', {
+        queueLength: this.actionQueue.length,
+        action: decision.action,
+        sqf: sqfTruncated,
+        sqfLength: withMetadata.length
+      });
 
     } catch (error) {
       logger.error('Error processing game state with LLM', { error });
@@ -341,8 +394,12 @@ export class BridgeServer {
 
       ws.on('message', async (message: string) => {
         try {
-          const data = JSON.parse(message.toString());
-          
+          const messageStr = message.toString();
+          logger.debug('WebSocket message decoded (JSON)', {
+            messageSize: messageStr.length
+          });
+          const data = JSON.parse(messageStr);
+
           if (data.type === 'state') {
             gameStateManager.updateState(data.payload);
             await this.processGameState(data.payload);
