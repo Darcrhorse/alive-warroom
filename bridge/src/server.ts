@@ -203,13 +203,34 @@ export class BridgeServer {
       try {
         configManager.updateConfig(req.body);
         logger.info('Configuration updated');
-        
+
         // Re-initialize LLM client if needed
         this.setupLLMClient();
-        
+
         res.json({ updated: true });
       } catch (error) {
         logger.error('Error updating config', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Get commander resources for a side
+    this.app.get('/api/resources/:side', (req: Request, res: Response) => {
+      try {
+        const side = req.params.side?.toUpperCase() as 'EAST' | 'WEST';
+
+        // Validate side parameter
+        if (side !== 'EAST' && side !== 'WEST') {
+          return res.status(400).json({ error: 'Invalid side. Must be EAST or WEST' });
+        }
+
+        // Get resources from the resource manager
+        const resources = resourceManager.getResources(side);
+
+        logger.debug('Resources retrieved', { side });
+        res.json(resources);
+      } catch (error) {
+        logger.error('Error getting resources', { error });
         res.status(500).json({ error: 'Internal server error' });
       }
     });
