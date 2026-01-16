@@ -234,6 +234,67 @@ export class BridgeServer {
         res.status(500).json({ error: 'Internal server error' });
       }
     });
+
+    // Spend tickets for a side
+    this.app.post('/api/resources/spend', (req: Request, res: Response) => {
+      try {
+        const { side, amount, unitType } = req.body;
+
+        // Validate side parameter
+        const normalizedSide = side?.toUpperCase() as 'EAST' | 'WEST';
+        if (normalizedSide !== 'EAST' && normalizedSide !== 'WEST') {
+          return res.status(400).json({ error: 'Invalid side. Must be EAST or WEST' });
+        }
+
+        // Validate amount parameter
+        if (typeof amount !== 'number' || amount <= 0) {
+          return res.status(400).json({ error: 'Invalid amount. Must be a positive number' });
+        }
+
+        // Get current tickets before spending (for response)
+        const previousTotal = resourceManager.getTickets(normalizedSide);
+
+        // Build reason string including unit type if provided
+        const reason = unitType
+          ? `${unitType} spawn (manual spend)`
+          : 'manual ticket spend';
+
+        // Attempt to spend tickets
+        const result = resourceManager.spendTickets(normalizedSide, amount, reason);
+
+        if (!result.success) {
+          logger.warn('Ticket spend failed', {
+            side: normalizedSide,
+            amount,
+            unitType,
+            error: result.error,
+          });
+          return res.status(400).json({
+            success: false,
+            error: result.error,
+            currentTotal: result.remaining,
+          });
+        }
+
+        logger.info('Tickets spent', {
+          side: normalizedSide,
+          amount,
+          unitType,
+          previousTotal,
+          newTotal: result.remaining,
+        });
+
+        res.json({
+          success: true,
+          previousTotal,
+          newTotal: result.remaining,
+          amountSpent: amount,
+        });
+      } catch (error) {
+        logger.error('Error spending tickets', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
   }
 
   private async processGameState(gameState: GameState): Promise<void> {
