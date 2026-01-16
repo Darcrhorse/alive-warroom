@@ -15,13 +15,13 @@ class CfgPatches {
 
 class Extended_PreInit_EventHandlers {
     class llmgm_main {
-        init = "call compile preprocessFileLineNumbers '\x\llmgm\addons\main\XEH_preInit.sqf'";
+        init = "call compile preprocessFileLineNumbers '\x\llmgm\addons\addon\XEH_preInit.sqf'";
     };
 };
 
 class Extended_PostInit_EventHandlers {
     class llmgm_main {
-        init = "call compile preprocessFileLineNumbers '\x\llmgm\addons\main\XEH_postInit.sqf'";
+        init = "call compile preprocessFileLineNumbers '\x\llmgm\addons\addon\XEH_postInit.sqf'";
     };
 };
 
@@ -30,7 +30,7 @@ class CfgFunctions {
         tag = "LLMGM";
         
         class Core {
-            file = "\x\llmgm\addons\main\functions";
+            file = "\x\llmgm\addons\addon\functions";
             
             class initGameMaster {
                 postInit = 0;
