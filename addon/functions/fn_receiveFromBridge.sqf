@@ -1,6 +1,10 @@
 /**
- * Receive and process actions from bridge server
+ * Receive and process actions from bridge server via INIDBI2 file polling
  * Called periodically from the main update loop
+ *
+ * This function reads commands from an INI file written by the bridge server.
+ * Uses OO_INIDBI (INIDBI2 extension) for file-based communication since
+ * the custom llmgm extension DLL is not compiled.
  *
  * Diagnostic logging is included to trace command polling attempts and results.
  * Look for [LLMGM][DIAG] entries in RPT log for debugging.
@@ -14,73 +18,93 @@ if (!LLMGM_enabled) exitWith {
 
 diag_log "[LLMGM][DIAG] fn_receiveFromBridge: LLMGM_enabled is true, proceeding with poll";
 
-// Poll for pending actions via extension
-diag_log "[LLMGM][DIAG] fn_receiveFromBridge: Calling extension 'llmgm' with ['receive', '']...";
-private _result = "llmgm" callExtension ["receive", ""];
+// Check if OO_INIDBI is available
+if (isNil "OO_INIDBI") exitWith {
+    diag_log "[LLMGM][WARN] fn_receiveFromBridge: OO_INIDBI is nil - INIDBI2 extension not loaded";
+    diag_log "[LLMGM][WARN] fn_receiveFromBridge: Please ensure @INIDBI2 mod is loaded";
+};
 
-// Log the raw extension result for debugging
-private _resultString = _result select 0;
-private _resultCode = _result select 1;
-diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: Extension result string: '%1'", _resultString];
-diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: Extension return code: %1", _resultCode];
+// Open the command database (uses userconfig/claude_warroom.ini)
+private _dbName = "claude_warroom";
+diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: Opening database '%1'...", _dbName];
 
-if (_resultString == "") then {
-    diag_log "[LLMGM][DIAG] fn_receiveFromBridge: Extension returned empty string - no action pending or extension not loaded";
+private _db = ["new", _dbName] call OO_INIDBI;
+
+if (isNil "_db") exitWith {
+    diag_log "[LLMGM][WARN] fn_receiveFromBridge: Failed to open INIDBI database - _db is nil";
+};
+
+diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: Database handle: %1", _db];
+
+// Read pending command from [commands] section
+private _pendingCmd = ["read", ["commands", "pending", ""]] call _db;
+
+diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: Read pending command: '%1' (type: %2)",
+    if (_pendingCmd isEqualType "" && {count _pendingCmd > 50}) then {(_pendingCmd select [0, 50]) + "..."} else {_pendingCmd},
+    typeName _pendingCmd];
+
+// Check if there's a pending command
+if (!(_pendingCmd isEqualType "") || {_pendingCmd == ""}) exitWith {
+    diag_log "[LLMGM][DIAG] fn_receiveFromBridge: No pending command (empty or wrong type)";
+    diag_log "[LLMGM][DIAG] fn_receiveFromBridge: Function complete";
+};
+
+// We have a command to execute!
+diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: Found pending command, length: %1", count _pendingCmd];
+
+// Read metadata
+private _cmdId = ["read", ["metadata", "id", "unknown"]] call _db;
+private _cmdType = ["read", ["metadata", "type", "unknown"]] call _db;
+private _cmdTimestamp = ["read", ["metadata", "timestamp", "0"]] call _db;
+
+diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: Command metadata - id: %1, type: %2, timestamp: %3",
+    _cmdId, _cmdType, _cmdTimestamp];
+
+// Clear the pending command BEFORE execution to prevent re-execution on crash
+diag_log "[LLMGM][DIAG] fn_receiveFromBridge: Clearing pending command to prevent re-execution...";
+["write", ["commands", "pending", ""]] call _db;
+
+// Handle escaped newlines from bridge (bridge escapes \n as \\n)
+private _sqf = _pendingCmd;
+
+diag_log format ["[LLMGM] Received action from bridge: %1 (id: %2)", _cmdType, _cmdId];
+diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: SQF code preview (first 100 chars): %1", _sqf select [0, 100]];
+
+// Build metadata hashmap for executeGenerated
+private _metadata = createHashMap;
+_metadata set ["action", _cmdType];
+_metadata set ["commandId", _cmdId];
+_metadata set ["timestamp", _cmdTimestamp];
+_metadata set ["source", "inidbi"];
+
+// Mark as executing
+["write", ["status", "executed", "pending"]] call _db;
+
+// Execute the SQF code
+private _execResult = false;
+private _execError = "";
+
+diag_log "[LLMGM][DIAG] fn_receiveFromBridge: About to call LLMGM_fnc_executeGenerated...";
+
+try {
+    _execResult = [_sqf, _metadata] call LLMGM_fnc_executeGenerated;
+    diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: LLMGM_fnc_executeGenerated returned: %1", _execResult];
+} catch {
+    _execError = str _exception;
+    diag_log format ["[LLMGM][WARN] fn_receiveFromBridge: Exception during execution: %1", _execError];
+};
+
+// Write execution result back to INI file for bridge feedback
+if (_execResult) then {
+    ["write", ["status", "executed", "true"]] call _db;
+    ["write", ["status", "result", "success"]] call _db;
+    ["write", ["status", "error", ""]] call _db;
+    diag_log format ["[LLMGM] Command executed successfully: %1 (id: %2)", _cmdType, _cmdId];
 } else {
-    diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: Got non-empty response, length: %1", count _resultString];
-    diag_log "[LLMGM][DIAG] fn_receiveFromBridge: Attempting to parse response...";
-
-    // Parse response (would be JSON in production)
-    private _response = nil;
-    private _parseError = false;
-
-    try {
-        _response = call compile _resultString;
-    } catch {
-        _parseError = true;
-        diag_log format ["[LLMGM][WARN] fn_receiveFromBridge: Failed to parse response - %1", str _exception];
-    };
-
-    if (_parseError) exitWith {
-        diag_log "[LLMGM][WARN] fn_receiveFromBridge: Exiting due to parse error";
-    };
-
-    if (isNil "_response") then {
-        diag_log "[LLMGM][WARN] fn_receiveFromBridge: Parsed response is nil";
-    } else {
-        diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: Parsed response type: %1", typeName _response];
-
-        if (typeName _response == "HASHMAP") then {
-            diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: Response is HASHMAP with keys: %1", keys _response];
-
-            private _hasAction = _response getOrDefault ["hasAction", false];
-            diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: hasAction = %1", _hasAction];
-
-            if (_hasAction) then {
-                private _sqf = _response getOrDefault ["sqf", ""];
-                private _metadata = _response getOrDefault ["metadata", createHashMap];
-
-                diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: SQF code length: %1", count _sqf];
-                diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: Metadata: %1", _metadata];
-
-                if (_sqf != "") then {
-                    private _actionName = _metadata getOrDefault ["action", "unknown"];
-                    diag_log format ["[LLMGM] Received action from bridge: %1", _actionName];
-                    diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: About to call LLMGM_fnc_executeGenerated with SQF (first 100 chars): %1", _sqf select [0, 100]];
-
-                    // Execute the generated SQF
-                    private _execResult = [_sqf, _metadata] call LLMGM_fnc_executeGenerated;
-                    diag_log format ["[LLMGM][DIAG] fn_receiveFromBridge: LLMGM_fnc_executeGenerated returned: %1", _execResult];
-                } else {
-                    diag_log "[LLMGM][WARN] fn_receiveFromBridge: hasAction is true but SQF code is empty";
-                };
-            } else {
-                diag_log "[LLMGM][DIAG] fn_receiveFromBridge: No action pending (hasAction is false)";
-            };
-        } else {
-            diag_log format ["[LLMGM][WARN] fn_receiveFromBridge: Response is not a HASHMAP, got: %1", typeName _response];
-        };
-    };
+    ["write", ["status", "executed", "true"]] call _db;
+    ["write", ["status", "result", "failed"]] call _db;
+    ["write", ["status", "error", _execError]] call _db;
+    diag_log format ["[LLMGM][WARN] Command execution failed: %1 (id: %2)", _cmdType, _cmdId];
 };
 
 diag_log "[LLMGM][DIAG] fn_receiveFromBridge: Function complete";
