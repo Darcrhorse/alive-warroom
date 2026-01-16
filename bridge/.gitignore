@@ -12,3 +12,6 @@ build/
 *.tgz
 coverage/
 .nyc_output/
+
+# Session persistence data (generated at runtime)
+data/resources.json
