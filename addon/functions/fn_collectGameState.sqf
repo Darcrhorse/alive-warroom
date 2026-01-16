@@ -25,7 +25,7 @@ private _pls = [];
         _pl set ["position", _pm];
 
         _pl set ["health", 1 - (damage _x)];
-        _pl set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {null}];
+        _pl set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {"none"}];
         _pl set ["weapons", weapons _x];
         _pl set ["currentTask", currentTask _x];
 
@@ -50,7 +50,7 @@ private _frns = [];
         _nf set ["position", _pm];
 
         _nf set ["health", 1 - (damage _x)];
-        _nf set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {null}];
+        _nf set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {"none"}];
         _nf set ["behavior", behaviour _x];
         _nf set ["side", "BLUFOR"];
 
@@ -84,7 +84,7 @@ private _fms = [];
             _nf set ["position", _pm];
 
             _nf set ["health", 1 - (damage _x)];
-            _nf set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {null}];
+            _nf set ["vehicle", if (vehicle _x != _x) then {typeOf vehicle _x} else {"none"}];
             _nf set ["behavior", behaviour _x];
             _nf set ["side", "OPFOR"];
 
