@@ -21,7 +21,49 @@ import {
   DEFAULT_SPAWN_COSTS,
   spawnValidator,
   SpawnRequest,
+  CommanderResources,
 } from './commander/resources';
+
+/**
+ * Human-readable resource summary for AI decision making
+ * This is passed alongside raw resources for easier prompt construction
+ */
+export interface ResourceSummary {
+  side: 'EAST' | 'WEST';
+  tickets: {
+    current: number;
+    max: number;
+    regenPerMinute: number;
+  };
+  unitPools: {
+    infantry: string;
+    lightVehicle: string;
+    heavyArmor: string;
+    helicopter: string;
+    fixedWing: string;
+  };
+  supportAssets: {
+    artilleryStrikes: number;
+    casSorties: number;
+    resupplyDrops: number;
+    medevacMissions: number;
+  };
+  activeUnits: {
+    current: number;
+    max: number;
+  };
+  spawnReady: boolean;
+  cooldownRemaining: number;
+  controlledObjectives: string[];
+}
+
+/**
+ * Extended game state with resource information for fog-of-war filtered AI state
+ */
+export type FilteredGameState = GameState & {
+  resources: CommanderResources;
+  resourceSummary: ResourceSummary;
+};
 
 export class BridgeServer {
   private app: express.Application;
@@ -191,13 +233,24 @@ export class BridgeServer {
     }
 
     try {
-      // Get decision from LLM
+      // Build fog-of-war filtered state with resources for AI decision making
+      // Default to EAST side for AI (in dual-commander mode, this would be parameterized)
+      const aiSide: 'EAST' | 'WEST' = 'EAST';
+      const filteredState = this.buildFogOfWarFilteredState(gameState, aiSide);
+
+      // Get decision from LLM with filtered state including resources
       const history = gameStateManager.getHistory();
-      const decision = await this.llmClient.getDecision(gameState, history);
-      
+      const decision = await this.llmClient.getDecision(filteredState, history);
+
       logger.info('LLM decision received', {
         action: decision.action,
-        reasoning: decision.reasoning
+        reasoning: decision.reasoning,
+        aiSide,
+        resourcesAvailable: {
+          tickets: filteredState.resourceSummary.tickets,
+          activeUnits: filteredState.resourceSummary.activeUnits,
+          spawnReady: filteredState.resourceSummary.spawnReady,
+        },
       });
 
       // If action is 'wait', don't generate SQF
@@ -657,6 +710,82 @@ export class BridgeServer {
       poolType,
       newKillerTickets,
       killedSideActiveUnits,
+    };
+  }
+
+  /**
+   * Build a fog-of-war filtered game state with resource information for AI decision making
+   *
+   * This method filters the game state to show only what the specified side can see,
+   * and adds the side's current resource state for strategic spawn decision making.
+   *
+   * Fog-of-war principle: Each side's AI only sees its own resource state, not the enemy's.
+   * This allows the AI to make informed decisions about spawning based on available:
+   * - Tickets (primary spawn currency)
+   * - Unit pools (faction-specific limits)
+   * - Support assets (artillery, CAS, etc.)
+   * - Active unit counts vs caps
+   * - Spawn cooldown status
+   *
+   * @param gameState - The full game state from the game
+   * @param side - The side to filter for ('EAST' or 'WEST')
+   * @returns Filtered game state with resource information for the specified side
+   */
+  buildFogOfWarFilteredState(
+    gameState: GameState,
+    side: 'EAST' | 'WEST'
+  ): FilteredGameState {
+    // Get resource state for this side (other side's resources are hidden - fog of war)
+    const resources = resourceManager.getResources(side);
+
+    // Build a human-readable summary for the AI prompt
+    const resourceSummary: ResourceSummary = {
+      side,
+      tickets: {
+        current: resources.tickets,
+        max: resources.maxTickets,
+        regenPerMinute: resources.ticketRegen + resources.bonusTicketIncome,
+      },
+      unitPools: {
+        infantry: `${resources.unitPool.infantry.available}/${resources.unitPool.infantry.max}`,
+        lightVehicle: `${resources.unitPool.lightVehicle.available}/${resources.unitPool.lightVehicle.max}`,
+        heavyArmor: `${resources.unitPool.heavyArmor.available}/${resources.unitPool.heavyArmor.max}`,
+        helicopter: `${resources.unitPool.helicopter.available}/${resources.unitPool.helicopter.max}`,
+        fixedWing: `${resources.unitPool.fixedWing.available}/${resources.unitPool.fixedWing.max}`,
+      },
+      supportAssets: {
+        artilleryStrikes: resources.supportAssets.artilleryStrikes,
+        casSorties: resources.supportAssets.casSorties,
+        resupplyDrops: resources.supportAssets.resupplyDrops,
+        medevacMissions: resources.supportAssets.medevacMissions,
+      },
+      activeUnits: {
+        current: resources.activeUnits,
+        max: resources.maxActiveUnits,
+      },
+      spawnReady: !resourceManager.isOnCooldown(side),
+      cooldownRemaining: resourceManager.isOnCooldown(side)
+        ? Math.ceil(
+            (resources.spawnCooldown - resourceManager.getTimeSinceLastSpawn(side)) / 1000
+          )
+        : 0,
+      controlledObjectives: resources.controlledObjectives,
+    };
+
+    // Log the filtered state for debugging
+    logger.debug('Built fog-of-war filtered state with resources', {
+      side,
+      tickets: resourceSummary.tickets,
+      activeUnits: resourceSummary.activeUnits,
+      spawnReady: resourceSummary.spawnReady,
+    });
+
+    // Build filtered state with resources appended
+    // The AI sees the full game state plus its own resource availability
+    return {
+      ...gameState,
+      resources,
+      resourceSummary,
     };
   }
 
