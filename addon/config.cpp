@@ -13,6 +13,18 @@ class CfgPatches {
     };
 };
 
+class Extended_PreInit_EventHandlers {
+    class llmgm_main {
+        init = "call compile preprocessFileLineNumbers '\x\llmgm\addons\main\XEH_preInit.sqf'";
+    };
+};
+
+class Extended_PostInit_EventHandlers {
+    class llmgm_main {
+        init = "call compile preprocessFileLineNumbers '\x\llmgm\addons\main\XEH_postInit.sqf'";
+    };
+};
+
 class CfgFunctions {
     class LLMGM {
         tag = "LLMGM";
