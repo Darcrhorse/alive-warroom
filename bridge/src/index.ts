@@ -4,7 +4,16 @@
 
 import { BridgeServer } from './server';
 import { configManager } from './config/settings';
-import { logger } from './utils/logger';
+import { logger, setLogLevel } from './utils/logger';
+
+// Parse verbose flag from CLI arguments or environment variable
+const args = process.argv.slice(2);
+const isVerbose = args.includes('--verbose') || args.includes('-v') || process.env.LOG_VERBOSE === 'true';
+
+// Set debug log level if verbose mode is enabled
+if (isVerbose) {
+  setLogLevel('debug');
+}
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
@@ -18,10 +27,12 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Main function
 function main() {
-  logger.info('Starting LLM Game Master Bridge Server');
-  
+  logger.info('Starting LLM Game Master Bridge Server', {
+    verbose: isVerbose
+  });
+
   const config = configManager.getConfig();
-  
+
   // Log configuration (without sensitive data)
   logger.info('Configuration loaded', {
     provider: config.llm.provider,
