@@ -593,6 +593,60 @@ _group
 };
 
 // =============================================================================
+// ARTILLERY OPERATIONS
+// =============================================================================
+
+export const ARTILLERY_TEMPLATES: Record<string, TacticalTemplate> = {
+  fire_mission: {
+    name: "Fire Mission",
+    description: "Call artillery fire mission on target position using doArtilleryFire",
+    parameters: ["_targetPos (Array)", "_ammoClass (String)", "_rounds (Number)"],
+    sqf: `
+// Fire Mission Template
+// _ammoClass options:
+//   HE: 'rhs_mag_m1_he_12'
+//   Smoke: 'rhs_mag_m60a2_smoke_4'
+//   Illum: 'rhs_mag_m314_ilum_4'
+
+private _artyUnits = allUnits select {
+  (vehicle _x) isKindOf 'StaticMortar' ||
+  (vehicle _x) isKindOf 'Artillery'
+};
+
+if (count _artyUnits > 0) then {
+  private _arty = vehicle (_artyUnits select 0);
+  _arty doArtilleryFire [_targetPos, _ammoClass, _rounds];
+  systemChat format ['FIRE MISSION: %1 rounds on target', _rounds];
+} else {
+  systemChat 'FIRE MISSION FAILED: No artillery units available';
+};
+`,
+    notes: "Uses native doArtilleryFire command. Requires artillery/mortar units in mission."
+  },
+
+  spawn_artillery_battery: {
+    name: "Spawn Artillery Battery",
+    description: "Create M119 howitzer with crew at position",
+    parameters: ["_pos (Array)", "_side (EAST/WEST)"],
+    sqf: `
+private _artyClass = if (_side == EAST) then {'rhs_D30_msv'} else {'RHS_M119_WD'};
+private _arty = createVehicle [_artyClass, _pos, [], 0, 'NONE'];
+
+private _group = createGroup _side;
+private _unitClass = if (_side == EAST) then {'rhs_vdv_rifleman'} else {'rhsusf_army_ucp_rifleman'};
+
+private _gunner = _group createUnit [_unitClass, _pos, [], 0, 'NONE'];
+private _loader = _group createUnit [_unitClass, _pos vectorAdd [2, 0, 0], [], 0, 'NONE'];
+
+_gunner moveInGunner _arty;
+
+_group
+`,
+    notes: "Creates M119 (WEST) or D30 (EAST) with two-man crew"
+  }
+};
+
+// =============================================================================
 // LAMBS AI BEHAVIORS
 // =============================================================================
 
@@ -976,6 +1030,7 @@ export const ALL_TEMPLATES = {
   vehicle: VEHICLE_TEMPLATES,
   logistics: LOGISTICS_TEMPLATES,
   garrison: GARRISON_TEMPLATES,
+  artillery: ARTILLERY_TEMPLATES,
   lambs: LAMBS_TEMPLATES,
   tasks: TASK_TEMPLATES,
   existing: EXISTING_FORCES_TEMPLATES
