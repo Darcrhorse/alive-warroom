@@ -13,6 +13,8 @@ import { sqfSanitizer } from './sqf/sanitizer';
 import { sqfParser } from './sqf/parser';
 import { sqfTemplates, SpawnQRFParams } from './sqf/templates';
 import { OpenAIClient } from './llm/openai';
+import { AnthropicClient } from './llm/anthropic';
+import { LLMClient } from './llm/client';
 import { configManager } from './config/settings';
 import { logger } from './utils/logger';
 
@@ -20,7 +22,7 @@ export class BridgeServer {
   private app: express.Application;
   private httpServer: HTTPServer | null = null;
   private wss: WebSocketServer | null = null;
-  private llmClient: OpenAIClient | null = null;
+  private llmClient: LLMClient | null = null;
   private actionQueue: Array<{ sqf: string; metadata: any }> = [];
   private lastActionTime: number = 0;
   private commandIdCounter: number = 0;
@@ -45,8 +47,13 @@ export class BridgeServer {
 
   private setupLLMClient(): void {
     const llmConfig = configManager.get('llm');
-    
-    if (llmConfig.provider === 'openai' && llmConfig.apiKey) {
+
+    if (!llmConfig.apiKey) {
+      logger.warn('LLM client not configured - running in passive mode');
+      return;
+    }
+
+    if (llmConfig.provider === 'openai') {
       this.llmClient = new OpenAIClient(
         llmConfig.apiKey,
         llmConfig.model,
@@ -54,8 +61,16 @@ export class BridgeServer {
         llmConfig.temperature
       );
       logger.info('OpenAI client initialized', { model: llmConfig.model });
+    } else if (llmConfig.provider === 'claude') {
+      this.llmClient = new AnthropicClient(
+        llmConfig.apiKey,
+        llmConfig.model,
+        llmConfig.maxTokens,
+        llmConfig.temperature
+      );
+      logger.info('Anthropic (Claude) client initialized', { model: llmConfig.model });
     } else {
-      logger.warn('LLM client not configured - running in passive mode');
+      logger.warn(`Unknown LLM provider: ${llmConfig.provider} - running in passive mode`);
     }
   }
 
