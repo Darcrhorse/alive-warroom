@@ -11,6 +11,7 @@ import { gameStateManager } from './game-state/manager';
 import { sqfValidator } from './sqf/validator';
 import { sqfSanitizer } from './sqf/sanitizer';
 import { sqfParser } from './sqf/parser';
+import { sqfTemplates, SpawnQRFParams } from './sqf/templates';
 import { OpenAIClient } from './llm/openai';
 import { configManager } from './config/settings';
 import { logger } from './utils/logger';
@@ -22,6 +23,7 @@ export class BridgeServer {
   private llmClient: OpenAIClient | null = null;
   private actionQueue: Array<{ sqf: string; metadata: any }> = [];
   private lastActionTime: number = 0;
+  private commandIdCounter: number = 0;
 
   constructor() {
     this.app = express();
@@ -55,6 +57,11 @@ export class BridgeServer {
     } else {
       logger.warn('LLM client not configured - running in passive mode');
     }
+  }
+
+  private generateCommandId(): string {
+    this.commandIdCounter++;
+    return `cmd_${Date.now()}_${this.commandIdCounter}`;
   }
 
   private setupRoutes(): void {
@@ -138,13 +145,99 @@ export class BridgeServer {
       try {
         configManager.updateConfig(req.body);
         logger.info('Configuration updated');
-        
+
         // Re-initialize LLM client if needed
         this.setupLLMClient();
-        
+
         res.json({ updated: true });
       } catch (error) {
         logger.error('Error updating config', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Spawn QRF (Quick Reaction Force)
+    this.app.post('/api/spawn/qrf', (req: Request, res: Response) => {
+      try {
+        const { position, side, unitCount, faction, targetPosition } = req.body;
+
+        // Validate required parameters
+        if (!position || typeof position.x !== 'number' || typeof position.y !== 'number') {
+          return res.status(400).json({ error: 'Missing or invalid position (requires x, y coordinates)' });
+        }
+
+        // Validate side parameter
+        const validSides = ['EAST', 'WEST', 'INDEPENDENT', 'CIVILIAN'];
+        if (!side || !validSides.includes(side)) {
+          return res.status(400).json({ error: 'Missing or invalid side (must be EAST, WEST, INDEPENDENT, or CIVILIAN)' });
+        }
+
+        // Validate and cap unit count
+        const safetyConfig = configManager.get('safety');
+        const maxUnits = safetyConfig.maxUnitsPerSpawn;
+        let effectiveUnitCount = typeof unitCount === 'number' ? unitCount : 6;
+        if (effectiveUnitCount < 1) effectiveUnitCount = 1;
+        if (effectiveUnitCount > maxUnits) effectiveUnitCount = maxUnits;
+
+        // Generate command ID
+        const commandId = this.generateCommandId();
+
+        // Build QRF spawn parameters
+        const qrfParams: SpawnQRFParams = {
+          position: {
+            x: position.x,
+            y: position.y,
+            z: typeof position.z === 'number' ? position.z : 0
+          },
+          side: side as 'EAST' | 'WEST' | 'INDEPENDENT' | 'CIVILIAN',
+          unitCount: effectiveUnitCount,
+          faction: faction || 'opfor'
+        };
+
+        // Add target position if provided
+        if (targetPosition && typeof targetPosition.x === 'number' && typeof targetPosition.y === 'number') {
+          qrfParams.targetPosition = {
+            x: targetPosition.x,
+            y: targetPosition.y,
+            z: typeof targetPosition.z === 'number' ? targetPosition.z : 0
+          };
+        }
+
+        // Generate SQF code
+        const sqf = sqfTemplates.spawnQRF(qrfParams);
+
+        // Queue the action
+        this.actionQueue.push({
+          sqf,
+          metadata: {
+            type: 'qrf_spawn',
+            commandId,
+            position: qrfParams.position,
+            side: qrfParams.side,
+            unitCount: effectiveUnitCount,
+            faction: qrfParams.faction,
+            targetPosition: qrfParams.targetPosition,
+            timestamp: Date.now()
+          }
+        });
+
+        logger.info('QRF spawn queued', {
+          commandId,
+          side: qrfParams.side,
+          unitCount: effectiveUnitCount,
+          faction: qrfParams.faction,
+          hasTarget: !!qrfParams.targetPosition,
+          queueLength: this.actionQueue.length
+        });
+
+        res.json({
+          queued: true,
+          commandId,
+          sqf,
+          queuePosition: this.actionQueue.length
+        });
+      } catch (error) {
+        logger.error('Error spawning QRF', { error });
         res.status(500).json({ error: 'Internal server error' });
       }
     });
