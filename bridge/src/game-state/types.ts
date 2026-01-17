@@ -76,6 +76,8 @@ export interface GMDecision {
   reasoning: string;
   urgency: 'immediate' | 'soon' | 'whenever';
   parameters: Record<string, any>;
+  /** Raw LLM response for spawn detection */
+  rawResponse?: string;
 }
 
 export interface GMAction {

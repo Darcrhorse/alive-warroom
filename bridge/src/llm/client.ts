@@ -11,6 +11,17 @@ export interface LLMClient {
   getDecision(gameState: GameState, history: EventHistory): Promise<GMDecision>;
 
   /**
+   * Get a decision using custom resource-aware prompts
+   * Used by AI Commanders with faction-specific context
+   */
+  getDecisionWithPrompt(
+    systemPrompt: string,
+    userPrompt: string,
+    gameState: GameState,
+    history: EventHistory
+  ): Promise<GMDecision>;
+
+  /**
    * Generate SQF code for a specific action
    */
   generateSQF(action: GMAction, context: GameContext): Promise<string>;

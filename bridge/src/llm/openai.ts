@@ -34,7 +34,7 @@ export class OpenAIClient implements LLMClient {
 
   async getDecision(gameState: GameState, history: EventHistory): Promise<GMDecision> {
     const prompt = this.buildDecisionPrompt(gameState, history);
-    
+
     logger.info('Requesting decision from OpenAI', { model: this.model });
 
     try {
@@ -54,6 +54,42 @@ export class OpenAIClient implements LLMClient {
       return this.parseDecision(content);
     } catch (error) {
       logger.error('Error getting decision from OpenAI', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Get decision using custom resource-aware prompts
+   * Used by AI Commanders with faction-specific context
+   */
+  async getDecisionWithPrompt(
+    systemPrompt: string,
+    userPrompt: string,
+    gameState: GameState,
+    history: EventHistory
+  ): Promise<GMDecision> {
+    logger.info('Requesting commander decision from OpenAI', { model: this.model });
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: this.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: this.maxTokens,
+        temperature: this.temperature
+      });
+
+      const content = response.choices[0]?.message?.content || '';
+      logger.debug('Received commander LLM response', { length: content.length });
+
+      const decision = this.parseDecision(content);
+      // Include raw response for spawn detection
+      decision.rawResponse = content;
+      return decision;
+    } catch (error) {
+      logger.error('Error getting commander decision from OpenAI', { error });
       throw error;
     }
   }

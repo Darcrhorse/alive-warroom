@@ -17,6 +17,25 @@ import { OpenAIClient } from './llm/openai';
 import { configManager } from './config/settings';
 import { logger, truncateSQF } from './utils/logger';
 import { inidbiWriter, CommandMetadata } from './inidbi-writer';
+import {
+  resourceManager,
+  UnitPoolType,
+  SPAWN_TYPE_TO_POOL,
+  DEFAULT_SPAWN_COSTS,
+  spawnValidator,
+  SpawnRequest,
+  CommanderResources,
+} from './commander/resources';
+import {
+  buildResourceAwarePrompt,
+  buildCommanderSystemPrompt,
+  detectSpawn,
+  spawnTypeToPoolType,
+  getSpawnTicketCost,
+  DEFAULT_COMMANDERS,
+  CommanderPromptContext,
+  DetectedSpawn,
+} from './commander';
 
 export class BridgeServer {
   private app: express.Application;
@@ -32,6 +51,20 @@ export class BridgeServer {
     this.setupMiddleware();
     this.setupRoutes();
     this.setupLLMClient();
+    this.initializeResources();
+  }
+
+  private initializeResources(): void {
+    // ResourceManager singleton is auto-initialized with EAST/WEST resources
+    const eastResources = resourceManager.getResources('EAST');
+    const westResources = resourceManager.getResources('WEST');
+
+    logger.info('Resource system initialized', {
+      eastTickets: eastResources.tickets,
+      eastMaxTickets: eastResources.maxTickets,
+      westTickets: westResources.tickets,
+      westMaxTickets: westResources.maxTickets,
+    });
   }
 
   private setupMiddleware(): void {
@@ -106,6 +139,24 @@ export class BridgeServer {
       });
     });
 
+    // Get current game state (for AI commander feedback)
+    this.app.get('/api/state', (req: Request, res: Response) => {
+      const state = gameStateManager.getState();
+      if (!state) {
+        return res.json({ hasState: false, message: 'No game state received yet' });
+      }
+      res.json({
+        hasState: true,
+        timestamp: state.timestamp,
+        players: state.players,
+        friendlyUnits: state.friendlyUnits?.length || 0,
+        enemyUnits: state.enemyUnits?.length || 0,
+        objectives: state.objectives,
+        environment: state.environment,
+        recentEvents: state.recentEvents?.slice(-5) || []
+      });
+    });
+
     // Receive game state
     this.app.post('/api/state', async (req: Request, res: Response) => {
       try {
@@ -129,8 +180,8 @@ export class BridgeServer {
         logger.info('Game state received', {
           timestamp: gameState.timestamp,
           mission: {
-            name: gameState.missionName || 'unknown',
-            elapsedTime: gameState.missionTime || 0
+            name: gameState.missionContext?.missionName || 'unknown',
+            elapsedTime: gameState.missionContext?.elapsedTime || 0
           },
           players: {
             total: gameState.players.length,
@@ -143,15 +194,15 @@ export class BridgeServer {
             enemy: gameState.enemyUnits?.length || 0
           },
           objectives: {
-            active: gameState.objectives?.filter((o: any) => o.status === 'active')?.length || 0,
-            completed: gameState.objectives?.filter((o: any) => o.status === 'completed')?.length || 0,
-            failed: gameState.objectives?.filter((o: any) => o.status === 'failed')?.length || 0
+            active: gameState.objectives?.filter((o: any) => o.state === 'active')?.length || 0,
+            completed: gameState.objectives?.filter((o: any) => o.state === 'completed')?.length || 0,
+            failed: gameState.objectives?.filter((o: any) => o.state === 'failed')?.length || 0
           },
           environment: {
             timeOfDay: gameState.environment?.timeOfDay || 'unknown',
             weather: gameState.environment?.weather || 'unknown'
           },
-          recentEvents: gameState.events?.length || 0
+          recentEvents: gameState.recentEvents?.length || 0
         });
 
         // Process state asynchronously
@@ -394,62 +445,433 @@ if (count _artyUnits > 0) then {
         res.status(500).json({ error: 'Internal server error' });
       }
     });
+
+    // Direct command injection endpoint - writes to INIDBI for game polling
+    this.app.post('/api/command', async (req: Request, res: Response) => {
+      const { sqf } = req.body;
+      if (!sqf || typeof sqf !== 'string') {
+        return res.status(400).json({ error: 'Missing sqf parameter' });
+      }
+
+      const wrappedSqf = `try { ${sqf} } catch { diag_log '[LLMGM] Command error'; };`;
+      const commandId = this.generateCommandId();
+      const metadata = {
+        action: 'direct_command',
+        commandId,
+        timestamp: Date.now()
+      };
+
+      // Add to memory queue
+      this.actionQueue.push({ sqf: wrappedSqf, metadata });
+
+      // Write to INIDBI file for game polling
+      try {
+        await this.writeToInidbi(wrappedSqf, metadata);
+        logger.info('Direct command queued and written to INIDBI', { sqfLength: sqf.length, commandId });
+      } catch (err) {
+        logger.error('Failed to write command to INIDBI', { error: err, commandId });
+      }
+
+      res.json({ success: true, queued: true, queuePosition: this.actionQueue.length });
+    });
+
+    // ==================== Resource Management Endpoints ====================
+
+    // Get resources for a side
+    this.app.get('/api/resources/:side', (req: Request, res: Response) => {
+      try {
+        const side = req.params.side?.toUpperCase();
+
+        if (side !== 'EAST' && side !== 'WEST') {
+          return res.status(400).json({
+            error: 'Invalid side parameter',
+            validSides: ['EAST', 'WEST']
+          });
+        }
+
+        const resources = resourceManager.getResources(side);
+        const poolStatus = resourceManager.getPoolStatus(side);
+        const supportStatus = resourceManager.getSupportAssetStatus(side);
+
+        res.json({
+          side,
+          tickets: resources.tickets,
+          maxTickets: resources.maxTickets,
+          ticketRegen: resourceManager.getTicketRegen(side),
+          unitPool: poolStatus,
+          supportAssets: supportStatus,
+          activeUnits: resources.activeUnits,
+          maxActiveUnits: resources.maxActiveUnits,
+          isOnCooldown: resourceManager.isOnCooldown(side),
+          controlledObjectives: resources.controlledObjectives,
+          bonusTicketIncome: resources.bonusTicketIncome
+        });
+      } catch (error) {
+        logger.error('Error getting resources', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Get resources for all sides
+    this.app.get('/api/resources', (req: Request, res: Response) => {
+      try {
+        const allResources = resourceManager.getAllResources();
+
+        res.json({
+          EAST: {
+            tickets: allResources.EAST.tickets,
+            maxTickets: allResources.EAST.maxTickets,
+            ticketRegen: resourceManager.getTicketRegen('EAST'),
+            poolSummary: resourceManager.getPoolSummary('EAST'),
+            supportSummary: resourceManager.getSupportAssetSummary('EAST')
+          },
+          WEST: {
+            tickets: allResources.WEST.tickets,
+            maxTickets: allResources.WEST.maxTickets,
+            ticketRegen: resourceManager.getTicketRegen('WEST'),
+            poolSummary: resourceManager.getPoolSummary('WEST'),
+            supportSummary: resourceManager.getSupportAssetSummary('WEST')
+          }
+        });
+      } catch (error) {
+        logger.error('Error getting all resources', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Spend tickets
+    this.app.post('/api/resources/spend', (req: Request, res: Response) => {
+      try {
+        const { side, amount, description } = req.body;
+
+        // Validate side
+        const normalizedSide = side?.toUpperCase();
+        if (normalizedSide !== 'EAST' && normalizedSide !== 'WEST') {
+          return res.status(400).json({
+            error: 'Invalid side parameter',
+            validSides: ['EAST', 'WEST']
+          });
+        }
+
+        // Validate amount
+        if (typeof amount !== 'number' || amount <= 0) {
+          return res.status(400).json({
+            error: 'Invalid amount',
+            details: 'Amount must be a positive number'
+          });
+        }
+
+        const result = resourceManager.spendTickets(
+          normalizedSide,
+          amount,
+          description || 'API spend request'
+        );
+
+        if (!result.success) {
+          return res.status(400).json({
+            success: false,
+            error: result.error,
+            remaining: result.remaining
+          });
+        }
+
+        logger.info('Tickets spent via API', {
+          side: normalizedSide,
+          amount,
+          remaining: result.remaining
+        });
+
+        res.json({
+          success: true,
+          remaining: result.remaining
+        });
+      } catch (error) {
+        logger.error('Error spending tickets', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Refund tickets
+    this.app.post('/api/resources/refund', (req: Request, res: Response) => {
+      try {
+        const { side, amount, reason } = req.body;
+
+        // Validate side
+        const normalizedSide = side?.toUpperCase();
+        if (normalizedSide !== 'EAST' && normalizedSide !== 'WEST') {
+          return res.status(400).json({
+            error: 'Invalid side parameter',
+            validSides: ['EAST', 'WEST']
+          });
+        }
+
+        // Validate amount
+        if (typeof amount !== 'number' || amount <= 0) {
+          return res.status(400).json({
+            error: 'Invalid amount',
+            details: 'Amount must be a positive number'
+          });
+        }
+
+        const result = resourceManager.refundTickets(
+          normalizedSide,
+          amount,
+          reason || 'API refund request'
+        );
+
+        if (!result.success) {
+          return res.status(400).json({
+            success: false,
+            error: result.error,
+            newTotal: result.newTotal
+          });
+        }
+
+        logger.info('Tickets refunded via API', {
+          side: normalizedSide,
+          amount,
+          newTotal: result.newTotal
+        });
+
+        res.json({
+          success: true,
+          newTotal: result.newTotal
+        });
+      } catch (error) {
+        logger.error('Error refunding tickets', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Validate spawn request
+    this.app.post('/api/resources/validate-spawn', (req: Request, res: Response) => {
+      try {
+        const spawnRequest: SpawnRequest = req.body;
+
+        // Validate side
+        const normalizedSide = spawnRequest.side?.toUpperCase();
+        if (normalizedSide !== 'EAST' && normalizedSide !== 'WEST') {
+          return res.status(400).json({
+            error: 'Invalid side parameter',
+            validSides: ['EAST', 'WEST']
+          });
+        }
+
+        const validation = spawnValidator.validateSpawn(resourceManager, {
+          ...spawnRequest,
+          side: normalizedSide as 'EAST' | 'WEST'
+        });
+
+        res.json(validation);
+      } catch (error) {
+        logger.error('Error validating spawn', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Reset resources for a side
+    this.app.post('/api/resources/reset', (req: Request, res: Response) => {
+      try {
+        const { side, difficultyLevel } = req.body;
+
+        // Validate side
+        const normalizedSide = side?.toUpperCase();
+        if (normalizedSide !== 'EAST' && normalizedSide !== 'WEST' && normalizedSide !== 'ALL') {
+          return res.status(400).json({
+            error: 'Invalid side parameter',
+            validSides: ['EAST', 'WEST', 'ALL']
+          });
+        }
+
+        if (normalizedSide === 'ALL') {
+          resourceManager.resetAll(difficultyLevel);
+          logger.info('All resources reset via API', { difficultyLevel });
+        } else {
+          resourceManager.resetSide(normalizedSide, difficultyLevel);
+          logger.info('Resources reset via API', { side: normalizedSide, difficultyLevel });
+        }
+
+        res.json({
+          success: true,
+          side: normalizedSide,
+          difficultyLevel: difficultyLevel || 'default'
+        });
+      } catch (error) {
+        logger.error('Error resetting resources', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+
+    // Get recent transactions
+    this.app.get('/api/resources/transactions', (req: Request, res: Response) => {
+      try {
+        const side = req.query.side?.toString()?.toUpperCase();
+        const count = parseInt(req.query.count?.toString() || '20', 10);
+
+        let transactions;
+        if (side === 'EAST' || side === 'WEST') {
+          transactions = resourceManager.getTransactionsForSide(side, count);
+        } else {
+          transactions = resourceManager.getRecentTransactions(count);
+        }
+
+        res.json({ transactions });
+      } catch (error) {
+        logger.error('Error getting transactions', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
   }
 
-  private async processGameState(gameState: GameState): Promise<void> {
+  /**
+   * Process game state for a specific commander side
+   * This enables two separate commanders (WEST, EAST) to run independently
+   */
+  private async processCommanderDecision(
+    side: 'WEST' | 'EAST',
+    gameState: GameState
+  ): Promise<void> {
     if (!this.llmClient || !this.llmClient.isConfigured()) {
-      logger.debug('LLM client not configured, skipping AI processing');
       return;
     }
 
     const config = configManager.getConfig();
     const now = Date.now();
-    
-    // Check if we should take action
-    const timeSinceLastAction = (now - this.lastActionTime) / 1000;
-    
-    if (timeSinceLastAction < config.gm.minActionInterval) {
-      logger.debug('Too soon since last action', { timeSinceLastAction });
+
+    // Check spawn cooldown for this side
+    if (resourceManager.isOnCooldown(side)) {
+      logger.debug(`${side} commander on cooldown, skipping`);
       return;
     }
 
+    // Build resource-aware prompt for this commander
+    const history = gameStateManager.getHistory();
+    const commanderConfig = DEFAULT_COMMANDERS[side];
+
+    const promptContext: CommanderPromptContext = {
+      side,
+      gameState,
+      history,
+      config: commanderConfig,
+    };
+
+    // Build the system prompt and decision prompt
+    const systemPrompt = buildCommanderSystemPrompt(side);
+    const decisionPrompt = buildResourceAwarePrompt(promptContext);
+
     try {
-      // Get decision from LLM
-      const history = gameStateManager.getHistory();
-      const decision = await this.llmClient.getDecision(gameState, history);
-      
-      logger.info('LLM decision received', {
+      // Get decision from LLM with resource-aware context
+      const decision = await this.llmClient.getDecisionWithPrompt(
+        systemPrompt,
+        decisionPrompt,
+        gameState,
+        history
+      );
+
+      logger.info(`${side} commander decision received`, {
         action: decision.action,
         reasoning: decision.reasoning
       });
 
       // If action is 'wait', don't generate SQF
       if (decision.action === 'wait') {
-        logger.info('LLM decided to wait');
+        logger.info(`${side} commander decided to wait`);
         return;
       }
 
       // Extract SQF from decision
       const sqf = decision.parameters.sqf as string;
-      
+      const rawResponse = decision.rawResponse || '';
+
       if (!sqf) {
-        logger.warn('No SQF code in decision');
+        logger.warn(`${side} commander: No SQF code in decision`);
         return;
       }
 
-      // Validate SQF
-      const validation = sqfValidator.validate(sqf);
-      
-      if (!validation.valid) {
-        logger.error('Invalid SQF code generated', {
-          errors: validation.errors,
-          warnings: validation.warnings
+      // Detect spawn details from SQF and raw response
+      const detectedSpawn = detectSpawn(sqf, rawResponse);
+
+      logger.info(`${side} spawn detected`, {
+        spawnType: detectedSpawn.spawnType,
+        count: detectedSpawn.count,
+        confidence: detectedSpawn.confidence,
+        classnames: detectedSpawn.classnames.slice(0, 3),
+      });
+
+      // If spawn type is unknown and confidence is low, allow but log warning
+      if (detectedSpawn.spawnType === 'unknown' && detectedSpawn.confidence < 0.5) {
+        logger.warn(`${side}: Low confidence spawn detection, allowing non-spawn action`);
+      } else {
+        // Validate spawn against resources
+        const poolType = spawnTypeToPoolType(detectedSpawn.spawnType);
+        const ticketCost = getSpawnTicketCost(detectedSpawn);
+
+        const spawnRequest: SpawnRequest = {
+          side,
+          spawnType: poolType,
+          count: detectedSpawn.count,
+        };
+
+        const validation = spawnValidator.validateSpawn(resourceManager, spawnRequest);
+
+        if (!validation.allowed) {
+          logger.warn(`${side} spawn REJECTED`, {
+            reason: validation.failedChecks.join('; '),
+            failedChecks: validation.failedChecks,
+            spawnType: detectedSpawn.spawnType,
+            ticketCost,
+            currentTickets: resourceManager.getTickets(side),
+          });
+
+          // Don't execute - resources insufficient
+          return;
+        }
+
+        // Deduct resources BEFORE queuing
+        const spendResult = resourceManager.spendTickets(
+          side,
+          ticketCost,
+          `${detectedSpawn.spawnType} spawn (x${detectedSpawn.count})`
+        );
+
+        if (!spendResult.success) {
+          logger.error(`${side} failed to spend tickets`, { error: spendResult.error });
+          return;
+        }
+
+        // Deduct from unit pool
+        const poolSuccess = resourceManager.deductFromPool(side, poolType);
+        if (!poolSuccess) {
+          // Refund tickets if pool deduction failed
+          resourceManager.refundTickets(side, ticketCost, 'Pool deduction failed');
+          logger.error(`${side} failed to deduct from pool`, { poolType });
+          return;
+        }
+
+        // Record spawn time (triggers cooldown)
+        resourceManager.recordSpawn(side);
+
+        logger.info(`${side} resources deducted`, {
+          ticketCost,
+          poolType,
+          remainingTickets: spendResult.remaining,
+          poolRemaining: resourceManager.getResources(side).unitPool[poolType].available,
+        });
+      }
+
+      // Validate SQF syntax
+      const sqfValidation = sqfValidator.validate(sqf);
+
+      if (!sqfValidation.valid) {
+        logger.error(`${side}: Invalid SQF code generated`, {
+          errors: sqfValidation.errors,
+          warnings: sqfValidation.warnings
         });
         return;
       }
 
-      if (validation.warnings.length > 0) {
-        logger.warn('SQF validation warnings', { warnings: validation.warnings });
+      if (sqfValidation.warnings.length > 0) {
+        logger.warn(`${side} SQF validation warnings`, { warnings: sqfValidation.warnings });
       }
 
       // Sanitize and prepare SQF
@@ -457,12 +879,12 @@ if (count _artyUnits > 0) then {
       const withMetadata = sqfSanitizer.addMetadata(sanitized, {
         timestamp: now,
         action: decision.action,
-        reasoning: decision.reasoning
+        reasoning: decision.reasoning,
       });
 
       // Check dry run mode
       if (config.safety.dryRunMode) {
-        logger.info('DRY RUN - Would execute SQF', { sqf: withMetadata });
+        logger.info(`${side} DRY RUN - Would execute SQF`, { sqf: withMetadata });
         return;
       }
 
@@ -470,9 +892,13 @@ if (count _artyUnits > 0) then {
       const commandId = this.generateCommandId();
       const actionMetadata = {
         commandId,
-        type: 'llm_action',
+        type: 'commander_action',
+        commander: side,
         action: decision.action,
         reasoning: decision.reasoning,
+        spawnType: detectedSpawn.spawnType,
+        spawnCount: detectedSpawn.count,
+        ticketCost: getSpawnTicketCost(detectedSpawn),
         timestamp: now
       };
 
@@ -483,12 +909,11 @@ if (count _artyUnits > 0) then {
 
       // Write to INIDBI file for game polling
       this.writeToInidbi(withMetadata, actionMetadata).catch(err => {
-        logger.error('Failed to write LLM command to INIDBI', { error: err, commandId });
+        logger.error(`Failed to write ${side} command to INIDBI`, { error: err, commandId });
       });
 
-      this.lastActionTime = now;
       const sqfTruncated = truncateSQF(withMetadata);
-      logger.info('Action queued for execution', {
+      logger.info(`${side} action queued for execution`, {
         commandId,
         queueLength: this.actionQueue.length,
         action: decision.action,
@@ -497,8 +922,35 @@ if (count _artyUnits > 0) then {
       });
 
     } catch (error) {
-      logger.error('Error processing game state with LLM', { error });
+      logger.error(`Error processing ${side} commander decision`, { error });
     }
+  }
+
+  private async processGameState(gameState: GameState): Promise<void> {
+    if (!this.llmClient || !this.llmClient.isConfigured()) {
+      logger.debug('LLM client not configured, skipping AI processing');
+      return;
+    }
+
+    const config = configManager.getConfig();
+    const now = Date.now();
+
+    // Check if we should take action (global rate limit)
+    const timeSinceLastAction = (now - this.lastActionTime) / 1000;
+
+    if (timeSinceLastAction < config.gm.minActionInterval) {
+      logger.debug('Too soon since last action', { timeSinceLastAction });
+      return;
+    }
+
+    this.lastActionTime = now;
+
+    // Process both commanders independently
+    // Each commander has its own resource pool and cooldowns
+    await Promise.all([
+      this.processCommanderDecision('WEST', gameState),
+      this.processCommanderDecision('EAST', gameState),
+    ]);
   }
 
   private setupWebSocket(): void {
