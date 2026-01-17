@@ -61,7 +61,95 @@ npm start
 
 The server should start on `http://localhost:3000`
 
-### 4. Install Arma 3 Addon
+### 4. Start the Bridge Server
+
+Before launching Arma 3, ensure the bridge server is running:
+
+```bash
+cd bridge
+
+# If not already built, build first
+npm run build
+
+# Start the server
+node dist/index.js
+```
+
+Or use the npm script:
+```bash
+cd bridge && npm start
+```
+
+**Expected Console Output**:
+```
+[INFO] Bridge server starting...
+[INFO] Loading configuration from .env
+[INFO] LLM provider: openai
+[INFO] Server started on port 3000
+[INFO] Ready to accept connections
+```
+
+#### Required Arma 3 Mods
+
+The following mods must be loaded in Arma 3 for bridge communication:
+
+| Mod | Description | Notes |
+|-----|-------------|-------|
+| **@LLMGM** | Main LLM Game Master addon | Contains SQF functions for game state collection and code execution |
+| **@ClaudeBridge** | Communication bridge extension | Handles HTTP communication between Arma 3 and the bridge server |
+| **@Pythia** | SQF-Python integration | Required dependency for extension functionality |
+| **@CBA_A3** | Community Base Addons | Required framework dependency |
+
+**Launch Parameters**:
+```
+-mod=@LLMGM;@ClaudeBridge;@Pythia;@CBA_A3
+```
+
+#### Verification Steps
+
+1. **Check Server Status**:
+   ```bash
+   curl http://localhost:3000/health
+   # Expected: {"status":"ok","timestamp":...}
+   ```
+
+2. **Check API Readiness**:
+   ```bash
+   curl http://localhost:3000/api/status
+   # Expected: {"connected":true,"llmStatus":"ready",...}
+   ```
+
+3. **Monitor Logs** (in a separate terminal):
+   ```bash
+   tail -f bridge/logs/combined.log
+   ```
+
+4. **In-Game Verification** (after starting Arma 3):
+   ```sqf
+   // Run in Debug Console
+   hint str (LLMGM_bridgeConnected);
+   // Should display: true
+   ```
+
+#### Common Startup Issues
+
+**Problem**: `dist/index.js not found`
+- **Cause**: Bridge server not built
+- **Solution**: Run `npm run build` before starting
+
+**Problem**: `EADDRINUSE: Port 3000 already in use`
+- **Cause**: Another process using the port
+- **Solution**: Either stop the conflicting process or change `SERVER_PORT` in `.env`
+
+**Problem**: `OPENAI_API_KEY not set` or `Missing environment variables`
+- **Cause**: `.env` file not configured
+- **Solution**: Copy `.env.example` to `.env` and fill in required values
+
+**Problem**: `ECONNREFUSED` when testing health endpoint
+- **Cause**: Server not running or wrong port
+- **Solution**: Verify server is running and check `SERVER_PORT` setting
+
+### 5. Install Arma 3 Addon
 
 **Option A: Development (Unpacked)**
 
@@ -96,7 +184,7 @@ Arma 3/
 
 3. Launch Arma 3 with mod
 
-### 5. Configure Extension (Future)
+### 6. Configure Extension (Future)
 
 The C++ extension will be required for production use. For now, the system runs without it in test mode.
 
