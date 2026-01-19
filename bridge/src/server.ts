@@ -258,6 +258,44 @@ export class BridgeServer {
       }
     });
 
+    // POST /api/objectives/status - Receive objective status updates from game
+    this.app.post('/api/objectives/status', (req: Request, res: Response) => {
+      const { objectiveId, status, progress, data } = req.body;
+      
+      // Validate required fields (using strict null/undefined checks to allow falsy values like empty strings)
+      if (objectiveId == null || status == null) {
+        return res.status(400).json({
+          error: 'Missing required fields',
+          message: 'objectiveId and status are required'
+        });
+      }
+      
+      // Validate status is one of: ACTIVE, COMPLETE, FAILED, EXPIRED, PROGRESS
+      const validStatuses = ['ACTIVE', 'COMPLETE', 'FAILED', 'EXPIRED', 'PROGRESS'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({
+          error: 'Invalid status',
+          message: `status must be one of: ${validStatuses.join(', ')}`
+        });
+      }
+      
+      // Log the status update
+      logger.info(`Objective ${objectiveId} status: ${status}`, {
+        progress,
+        data
+      });
+      
+      // TODO: Store/process the objective status update
+      // For now, just acknowledge receipt
+      
+      res.json({
+        received: true,
+        objectiveId,
+        status,
+        timestamp: Date.now()
+      });
+    });
+
     // Update configuration
     this.app.post('/api/config', (req: Request, res: Response) => {
       try {
